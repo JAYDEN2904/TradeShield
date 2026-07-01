@@ -1,6 +1,6 @@
-# [Project name]
+# TradeShield
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A B2B escrow marketplace for Ghana connecting buyers (retailers/traders) and suppliers (wholesalers) — orders move through an explicit escrow state machine from order placement to payment, shipping, delivery confirmation, and fund release.
 
 ## Run & Operate
 
@@ -22,23 +22,34 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/db/src/schema/` — DB schema, one file per table: `users`, `otpCodes`, `products`, `orders`, `transactions`, `ratings`, `disputes`.
+- `artifacts/api-server/src/lib/orderStateMachine.ts` — pure module defining every legal order-status transition. All route/webhook code must go through `canTransition`/`applyTransition` here instead of writing `status` directly.
+- `artifacts/api-server/src/lib/paymentProvider.ts` — `PaymentProvider` adapter interface (`charge`, `disburse`) with a `MockPaymentProvider`. This is the single swap point for the real Moolre integration later.
+- `lib/api-spec/openapi.yaml` — API contract (to be filled in as endpoints are built).
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Originally specced as Next.js + Supabase; built instead on this workspace's native stack (React + Vite frontend, Express 5 API, Postgres + Drizzle) to match the platform's tooling — same data model and product behavior, different framework plumbing.
+- Order status lives only in `orders.status` (a Postgres enum) and is only ever changed via the state-machine module — never inferred from timestamps or other columns.
+- Payment integration (Moolre Collections/Disbursement) is fully behind the `PaymentProvider` interface; the MVP mock provider returns `pending` and a separate mock webhook route drives the actual status transition, mirroring how the real async webhook flow will work.
+- OTP-based auth is mocked for the MVP via an `otp_codes` table (phone + code + expiry) rather than a real SMS provider — swappable later without changing the auth flow shape.
+- 72-hour delivery auto-confirmation must be enforced by a server-side scheduled job reading `orders.auto_release_at`, not a client-side timer.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- **Core loop:** buyer browses supplier catalog → creates order → supplier accepts/rejects → buyer pays (escrow) → supplier ships → buyer confirms receipt (or 72h auto-release) → funds release to supplier → both parties rate the transaction.
+- **Roles:** buyer, supplier, or both (per user record).
+- **Admin:** views all orders by status, can manually force a dispute resolution (status transition) — the only actor allowed to move an order out of `disputed`.
+- Out of scope for this build: AI fraud detection, cross-border support, USSD, supplier financing.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- July 13, 2026 competition deadline — prioritize a fully working core loop over feature breadth.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- Always route order-status changes through `orderStateMachine.ts` — direct `db.update(ordersTable).set({ status: ... })` calls bypass the only validation that prevents illegal transitions.
+- Payment-related transitions must be idempotent — webhooks (mock and real) can be delivered more than once for the same reference.
 
 ## Pointers
 

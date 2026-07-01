@@ -1,0 +1,67 @@
+Build TradeShield: a B2B escrow marketplace web app for Ghana connecting 
+Buyers (retailers/traders) and Suppliers (wholesalers). This is an MVP 
+for a July 13, 2026 competition deadline — prioritize a fully working 
+core loop over feature breadth.
+
+STACK: Next.js (App Router) + TypeScript, Supabase (auth, Postgres, 
+storage), TanStack Query for server state, Zustand for client state, 
+Tailwind CSS. Responsive web app, mobile-first — most users will be on 
+Android phone browsers, not desktop.
+
+CORE LOOP (build this end-to-end before anything else):
+1. Buyer browses supplier catalog, creates an order
+2. Supplier accepts or rejects the order
+3. Buyer pays — order enters escrow (stub the Moolre Collections call 
+   behind a clean interface/adapter so the real API can be dropped in 
+   later; use a mock "payment succeeded" webhook handler for now)
+4. Supplier marks order as shipped
+5. Buyer confirms receipt (or a 72-hour timer auto-confirms)
+6. Funds "release" to supplier (stub Moolre Bulk Disbursement the same way)
+7. Both parties rate the transaction
+
+DATA MODEL (Supabase/Postgres):
+- users: id, phone, role (buyer/supplier/both), business_name, location, 
+  category, payout_momo_number, created_at
+- products: id, supplier_id, name, category, unit_price, moq, unit, 
+  stock_qty, photo_url, is_active
+- orders: id, buyer_id, supplier_id, product_id, quantity, total_amount, 
+  platform_fee, status (enum: pending_supplier_confirmation, 
+  awaiting_payment, payment_processing, in_escrow, shipped, completed, 
+  disputed, expired, payout_failed), created_at, shipped_at, 
+  auto_release_at
+- transactions: id, order_id, type (collection/disbursement/refund), 
+  moolre_reference, status, amount, created_at
+- ratings: id, order_id, rater_id, ratee_id, stars, comment
+- disputes: id, order_id, raised_by, reason, status, resolution, 
+  resolved_by_admin_id
+
+BUILD ORDER (respect this sequence — payment state machine before UI 
+polish):
+1. Supabase schema + auth (phone/OTP-style, can mock OTP for MVP)
+2. Order state machine as a pure, well-tested module — model every status 
+   transition from the list above explicitly, reject invalid transitions
+3. Buyer flow: browse → order → mock payment → escrow status view
+4. Supplier flow: accept/reject → mark shipped → mock payout
+5. Delivery confirmation with the 72-hour auto-release logic (use a 
+   background job/cron, not a client-side timer)
+6. Admin dashboard: view all orders by status, manual dispute resolution 
+   that can force a status transition
+7. Ratings + trust stats (completion rate, total orders) on supplier 
+   profiles
+
+IMPORTANT CONSTRAINTS:
+- Wrap all Moolre API calls behind an adapter interface 
+  (PaymentProvider.charge(), PaymentProvider.disburse()) so swapping the 
+  mock for the real sandbox integration later is a one-file change, not 
+  a rewrite
+- Every payment-related state transition must be idempotent — assume 
+  webhooks can arrive twice
+- The escrow status must never be inferred client-side from unrelated 
+  data — it's always read directly from the order's `status` field, 
+  single source of truth
+- Do not build: AI fraud detection, cross-border support, USSD, 
+  supplier financing — explicitly out of scope for this build
+
+Give me the initial project scaffold first (folder structure, schema 
+migration, and the order state machine module with its status transition 
+rules), before generating any UI screens.

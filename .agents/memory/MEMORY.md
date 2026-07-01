@@ -1,0 +1,1 @@
+- [TradeShield stack adaptation](tradeshield-stack-adaptation.md) — user spec'd Next.js+Supabase; built on workspace-native React+Vite/Express/Drizzle stack instead. Stay consistent unless user objects.
