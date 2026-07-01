@@ -3,13 +3,29 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: TradeShield B2B escrow marketplace API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Phone/OTP auth (mocked for MVP)
+  - name: users
+    description: User profiles and supplier trust stats
+  - name: products
+    description: Supplier catalog
+  - name: orders
+    description: Core escrow order lifecycle
+  - name: webhooks
+    description: Mock payment provider webhooks
+  - name: disputes
+    description: Dispute raising and admin resolution
+  - name: ratings
+    description: Post-order ratings
+  - name: admin
+    description: Admin views across all orders/disputes
 paths:
   /healthz:
     get:
@@ -24,7 +40,684 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/request-otp:
+    post:
+      operationId: requestOtp
+      tags: [auth]
+      summary: Request a mock OTP code for a phone number
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpRequestInput"
+      responses:
+        "200":
+          description: OTP generated (mocked — code is echoed back for MVP demo purposes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpRequestResult"
+
+  /auth/verify-otp:
+    post:
+      operationId: verifyOtp
+      tags: [auth]
+      summary: Verify an OTP code. Logs in if the phone already has an account.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OtpVerifyInput"
+      responses:
+        "200":
+          description: OTP verified
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpVerifyResult"
+        "400":
+          description: Invalid or expired code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Complete registration for a phone verified via /auth/verify-otp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterInput"
+      responses:
+        "201":
+          description: Account created and session started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Phone not verified or already registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get the currently logged-in user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateCurrentUser
+      tags: [auth]
+      summary: Update the current user's profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserUpdate"
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Log out the current session
+      responses:
+        "204":
+          description: Logged out
+
+  /users/{id}:
+    get:
+      operationId: getUser
+      tags: [users]
+      summary: Get a public user profile
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /users/{id}/stats:
+    get:
+      operationId: getSupplierStats
+      tags: [users]
+      summary: Trust stats for a supplier (completion rate, total orders, average rating)
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Supplier trust stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierStats"
+
+  /users/{id}/ratings:
+    get:
+      operationId: listUserRatings
+      tags: [ratings]
+      summary: Ratings received by a user
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: List of ratings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Rating"
+
+  /products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: Browse the catalog
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: supplierId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of active products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+    post:
+      operationId: createProduct
+      tags: [products]
+      summary: Create a product listing (supplier only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductInput"
+      responses:
+        "201":
+          description: Created product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /products/{id}:
+    get:
+      operationId: getProduct
+      tags: [products]
+      summary: Get a single product
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      responses:
+        "200":
+          description: Product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Update a product listing (owning supplier only)
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductUpdate"
+      responses:
+        "200":
+          description: Updated product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "403":
+          description: Not the owning supplier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteProduct
+      tags: [products]
+      summary: Delete a product listing (owning supplier only)
+      parameters:
+        - $ref: "#/components/parameters/ProductId"
+      responses:
+        "204":
+          description: Deleted
+        "403":
+          description: Not the owning supplier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders:
+    get:
+      operationId: listOrders
+      tags: [orders]
+      summary: List orders for the current user (as buyer or supplier)
+      parameters:
+        - name: role
+          in: query
+          required: false
+          description: Filter to orders where the current user is this role
+          schema:
+            type: string
+            enum: [buyer, supplier]
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/OrderStatus"
+      responses:
+        "200":
+          description: List of orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Order"
+    post:
+      operationId: createOrder
+      tags: [orders]
+      summary: Buyer creates an order against a product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderInput"
+      responses:
+        "201":
+          description: Created order (pending_supplier_confirmation)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "400":
+          description: Invalid order (e.g. below MOQ, insufficient stock)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}:
+    get:
+      operationId: getOrder
+      tags: [orders]
+      summary: Get a single order (buyer, supplier, or admin only)
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Order detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDetail"
+        "403":
+          description: Not a party to this order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}/accept:
+    post:
+      operationId: acceptOrder
+      tags: [orders]
+      summary: Supplier accepts the order
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Order moved to awaiting_payment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "409":
+          description: Invalid transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}/reject:
+    post:
+      operationId: rejectOrder
+      tags: [orders]
+      summary: Supplier rejects the order
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Order moved to expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "409":
+          description: Invalid transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}/pay:
+    post:
+      operationId: payOrder
+      tags: [orders]
+      summary: Buyer initiates escrow payment (mock Moolre Collections charge)
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Order moved to payment_processing; a mock webhook will resolve to in_escrow shortly after
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "409":
+          description: Invalid transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}/ship:
+    post:
+      operationId: shipOrder
+      tags: [orders]
+      summary: Supplier marks the order as shipped; starts the 72h auto-release window
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Order moved to shipped, auto_release_at set to now + 72h
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "409":
+          description: Invalid transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}/confirm-receipt:
+    post:
+      operationId: confirmReceipt
+      tags: [orders]
+      summary: Buyer confirms receipt; triggers disbursement to supplier
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Order moved to completed (or payout_failed if disbursement fails)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "409":
+          description: Invalid transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}/dispute:
+    post:
+      operationId: raiseDispute
+      tags: [disputes]
+      summary: Buyer or supplier raises a dispute on an order
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeInput"
+      responses:
+        "201":
+          description: Dispute created; order moved to disputed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispute"
+        "409":
+          description: Invalid transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}/ratings:
+    post:
+      operationId: createRating
+      tags: [ratings]
+      summary: Rate the counterparty of a completed order
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RatingInput"
+      responses:
+        "201":
+          description: Rating recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Rating"
+        "409":
+          description: Order not completed, or already rated by this user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /webhooks/payments:
+    post:
+      operationId: handlePaymentWebhook
+      tags: [webhooks]
+      summary: Mock Moolre Collections webhook — resolves payment_processing to in_escrow (or back to awaiting_payment on failure). Idempotent per moolreReference.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaymentWebhookInput"
+      responses:
+        "200":
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookAck"
+
+  /webhooks/disbursements:
+    post:
+      operationId: handleDisbursementWebhook
+      tags: [webhooks]
+      summary: Mock Moolre Bulk Disbursement webhook — resolves a payout attempt. Idempotent per moolreReference.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisbursementWebhookInput"
+      responses:
+        "200":
+          description: Webhook processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebhookAck"
+
+  /admin/orders:
+    get:
+      operationId: listAllOrders
+      tags: [admin]
+      summary: Admin — list all orders, optionally filtered by status
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/OrderStatus"
+      responses:
+        "200":
+          description: All orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/OrderDetail"
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/disputes:
+    get:
+      operationId: listDisputes
+      tags: [admin]
+      summary: Admin — list disputes, optionally filtered by status
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [open, resolved]
+      responses:
+        "200":
+          description: Disputes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Dispute"
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/disputes/{id}/resolve:
+    post:
+      operationId: resolveDispute
+      tags: [admin]
+      summary: Admin — force-resolve a dispute into a target order status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeResolutionInput"
+      responses:
+        "200":
+          description: Resolved dispute and updated order
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispute"
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Invalid target status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
+  parameters:
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    ProductId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+    OrderId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+
   schemas:
     HealthStatus:
       type: object
@@ -34,3 +727,405 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    UserRole:
+      type: string
+      enum: [buyer, supplier, both]
+
+    User:
+      type: object
+      required:
+        [id, phone, role, businessName, location, isAdmin, createdAt]
+      properties:
+        id:
+          type: integer
+        phone:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+        businessName:
+          type: string
+        location:
+          type: string
+        category:
+          type: ["string", "null"]
+        payoutMomoNumber:
+          type: ["string", "null"]
+        isAdmin:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    UserUpdate:
+      type: object
+      properties:
+        businessName:
+          type: string
+          minLength: 1
+        location:
+          type: string
+          minLength: 1
+        category:
+          type: string
+        payoutMomoNumber:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+
+    SupplierStats:
+      type: object
+      required: [totalOrders, completedOrders, completionRate, averageRating]
+      properties:
+        totalOrders:
+          type: integer
+        completedOrders:
+          type: integer
+        completionRate:
+          type: number
+        averageRating:
+          type: ["number", "null"]
+
+    OtpRequestInput:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+          minLength: 6
+
+    OtpRequestResult:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        # Mock-only: real SMS provider would not echo the code back.
+        debugCode:
+          type: string
+
+    OtpVerifyInput:
+      type: object
+      required: [phone, code]
+      properties:
+        phone:
+          type: string
+        code:
+          type: string
+
+    OtpVerifyResult:
+      type: object
+      required: [verified, needsRegistration]
+      properties:
+        verified:
+          type: boolean
+        needsRegistration:
+          type: boolean
+        user:
+          oneOf:
+            - $ref: "#/components/schemas/User"
+            - type: "null"
+
+    RegisterInput:
+      type: object
+      required: [phone, businessName, location, role]
+      properties:
+        phone:
+          type: string
+        businessName:
+          type: string
+          minLength: 1
+        location:
+          type: string
+          minLength: 1
+        role:
+          $ref: "#/components/schemas/UserRole"
+        category:
+          type: string
+        payoutMomoNumber:
+          type: string
+
+    Product:
+      type: object
+      required:
+        [
+          id,
+          supplierId,
+          name,
+          category,
+          unitPrice,
+          moq,
+          unit,
+          stockQty,
+          isActive,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: integer
+        supplierId:
+          type: integer
+        name:
+          type: string
+        category:
+          type: string
+        unitPrice:
+          type: string
+        moq:
+          type: integer
+        unit:
+          type: string
+        stockQty:
+          type: integer
+        photoUrl:
+          type: ["string", "null"]
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    ProductInput:
+      type: object
+      required: [name, category, unitPrice, unit, stockQty]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        category:
+          type: string
+          minLength: 1
+        unitPrice:
+          type: string
+        moq:
+          type: integer
+          minimum: 1
+        unit:
+          type: string
+          minLength: 1
+        stockQty:
+          type: integer
+          minimum: 0
+        photoUrl:
+          type: string
+        isActive:
+          type: boolean
+
+    ProductUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        category:
+          type: string
+          minLength: 1
+        unitPrice:
+          type: string
+        moq:
+          type: integer
+          minimum: 1
+        unit:
+          type: string
+          minLength: 1
+        stockQty:
+          type: integer
+          minimum: 0
+        photoUrl:
+          type: string
+        isActive:
+          type: boolean
+
+    OrderStatus:
+      type: string
+      enum:
+        - pending_supplier_confirmation
+        - awaiting_payment
+        - payment_processing
+        - in_escrow
+        - shipped
+        - completed
+        - disputed
+        - expired
+        - payout_failed
+
+    Order:
+      type: object
+      required:
+        [
+          id,
+          buyerId,
+          supplierId,
+          productId,
+          quantity,
+          totalAmount,
+          platformFee,
+          status,
+          createdAt,
+        ]
+      properties:
+        id:
+          type: integer
+        buyerId:
+          type: integer
+        supplierId:
+          type: integer
+        productId:
+          type: integer
+        quantity:
+          type: integer
+        totalAmount:
+          type: string
+        platformFee:
+          type: string
+        status:
+          $ref: "#/components/schemas/OrderStatus"
+        createdAt:
+          type: string
+          format: date-time
+        shippedAt:
+          type: ["string", "null"]
+          format: date-time
+        autoReleaseAt:
+          type: ["string", "null"]
+          format: date-time
+
+    OrderDetail:
+      allOf:
+        - $ref: "#/components/schemas/Order"
+        - type: object
+          properties:
+            product:
+              $ref: "#/components/schemas/Product"
+            buyer:
+              $ref: "#/components/schemas/User"
+            supplier:
+              $ref: "#/components/schemas/User"
+            dispute:
+              oneOf:
+                - $ref: "#/components/schemas/Dispute"
+                - type: "null"
+
+    OrderInput:
+      type: object
+      required: [productId, quantity]
+      properties:
+        productId:
+          type: integer
+        quantity:
+          type: integer
+          minimum: 1
+
+    DisputeStatus:
+      type: string
+      enum: [open, resolved]
+
+    Dispute:
+      type: object
+      required: [id, orderId, raisedBy, reason, status, createdAt]
+      properties:
+        id:
+          type: integer
+        orderId:
+          type: integer
+        raisedBy:
+          type: integer
+        reason:
+          type: string
+        status:
+          $ref: "#/components/schemas/DisputeStatus"
+        resolution:
+          type: ["string", "null"]
+        resolvedByAdminId:
+          type: ["integer", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    DisputeInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+
+    DisputeResolutionInput:
+      type: object
+      required: [targetStatus, resolution]
+      properties:
+        targetStatus:
+          $ref: "#/components/schemas/OrderStatus"
+        resolution:
+          type: string
+          minLength: 1
+
+    Rating:
+      type: object
+      required: [id, orderId, raterId, rateeId, stars, createdAt]
+      properties:
+        id:
+          type: integer
+        orderId:
+          type: integer
+        raterId:
+          type: integer
+        rateeId:
+          type: integer
+        stars:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    RatingInput:
+      type: object
+      required: [stars]
+      properties:
+        stars:
+          type: integer
+          minimum: 1
+          maximum: 5
+        comment:
+          type: string
+
+    PaymentWebhookInput:
+      type: object
+      required: [orderId, moolreReference, status]
+      properties:
+        orderId:
+          type: integer
+        moolreReference:
+          type: string
+        status:
+          type: string
+          enum: [succeeded, failed]
+
+    DisbursementWebhookInput:
+      type: object
+      required: [orderId, moolreReference, status]
+      properties:
+        orderId:
+          type: integer
+        moolreReference:
+          type: string
+        status:
+          type: string
+          enum: [succeeded, failed]
+
+    WebhookAck:
+      type: object
+      required: [received]
+      properties:
+        received:
+          type: boolean

@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "TradeShield"
+version = "1.0.0"
+id = "artifacts/tradeshield"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22898
+
+[services.development]
+run = "pnpm --filter @workspace/tradeshield run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/tradeshield", "run", "build" ]
+publicDir = "artifacts/tradeshield/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22898"
+BASE_PATH = "/"

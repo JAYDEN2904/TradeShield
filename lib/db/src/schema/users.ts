@@ -1,4 +1,11 @@
-import { pgTable, serial, text, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  serial,
+  text,
+  timestamp,
+  pgEnum,
+  boolean,
+} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -12,6 +19,10 @@ export const usersTable = pgTable("users", {
   location: text("location").notNull(),
   category: text("category"),
   payoutMomoNumber: text("payout_momo_number"),
+  // Admin is a flag, not a role value, so a buyer/supplier/both user can
+  // also be an admin. No self-serve signup path sets this — seeded/updated
+  // directly in the DB for the MVP.
+  isAdmin: boolean("is_admin").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
