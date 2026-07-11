@@ -10,4 +10,7 @@ export interface OrderInput {
   productId: number;
   /** @minimum 1 */
   quantity: number;
+  /** @minLength 1 */
+  deliveryLocation: string;
+  preferredDeliveryDate: Date;
 }

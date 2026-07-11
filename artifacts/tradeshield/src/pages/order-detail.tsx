@@ -1,16 +1,34 @@
 import { useParams } from "wouter";
 import { useAuth } from "@/lib/auth";
-import { useGetOrder, getGetOrderQueryKey, useAcceptOrder, useRejectOrder, usePayOrder, useShipOrder, useConfirmReceipt, useRaiseDispute, useCreateRating, OrderStatus } from "@workspace/api-client-react";
+import {
+  useGetOrder,
+  getGetOrderQueryKey,
+  useAcceptOrder,
+  useRejectOrder,
+  usePayOrder,
+  useShipOrder,
+  useConfirmReceipt,
+  useRaiseDispute,
+  useCreateRating,
+  OrderStatus,
+  type OrderDetail,
+} from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { getErrorMessage } from "@/lib/utils";
+import { formatGhs, formatOrderId } from "@/lib/format";
+import { isProcessingStatus } from "@/lib/order-utils";
 import { OrderStatusBadge } from "@/components/status-badge";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import {
+  EscrowBanner,
+  OrderTimeline,
+  OrderActionPanel,
+  PageHeader,
+} from "@/components/design-system";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { Package, ShieldCheck, AlertTriangle, CheckCircle2, Clock, Truck, FileText, Star } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import { Package, AlertTriangle, MapPin, Calendar } from "lucide-react";
 import { useState } from "react";
 
 export default function OrderDetail() {
@@ -22,307 +40,483 @@ export default function OrderDetail() {
 
   const [disputeReason, setDisputeReason] = useState("");
   const [isDisputeOpen, setIsDisputeOpen] = useState(false);
-  
   const [isRatingOpen, setIsRatingOpen] = useState(false);
   const [ratingStars, setRatingStars] = useState(5);
   const [ratingComment, setRatingComment] = useState("");
 
   const { data: order, isLoading } = useGetOrder(orderId, {
-    query: { enabled: !!orderId, queryKey: getGetOrderQueryKey(orderId) }
+    query: {
+      enabled: !!orderId,
+      queryKey: getGetOrderQueryKey(orderId),
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        if (status && isProcessingStatus(status)) return 3000;
+        return false;
+      },
+    },
   });
 
-  const onMutateSuccess = () => {
+  const onMutateSuccess = (message?: string) => {
     queryClient.invalidateQueries({ queryKey: getGetOrderQueryKey(orderId) });
-    toast({ title: "Success", description: "Order updated successfully." });
+    queryClient.invalidateQueries({ queryKey: ["/orders"] });
+    toast({
+      title: "Success",
+      description: message ?? "Order updated successfully.",
+    });
   };
 
-  const onError = (err: any) => {
-    toast({ title: "Error", description: err.error || "Action failed", variant: "destructive" });
+  const onError = (err: unknown) => {
+    toast({
+      title: "Error",
+      description: getErrorMessage(err, "Action failed"),
+      variant: "destructive",
+    });
   };
 
-  const acceptMut = useAcceptOrder({ mutation: { onSuccess: onMutateSuccess, onError } });
-  const rejectMut = useRejectOrder({ mutation: { onSuccess: onMutateSuccess, onError } });
-  const payMut = usePayOrder({ mutation: { onSuccess: onMutateSuccess, onError } });
-  const shipMut = useShipOrder({ mutation: { onSuccess: onMutateSuccess, onError } });
-  const confirmMut = useConfirmReceipt({ mutation: { onSuccess: onMutateSuccess, onError } });
-  const disputeMut = useRaiseDispute({ mutation: { 
-    onSuccess: () => {
-      onMutateSuccess();
-      setIsDisputeOpen(false);
-      setDisputeReason("");
-    }, 
-    onError 
-  }});
-  
-  const rateMut = useCreateRating({ mutation: {
-    onSuccess: () => {
-      onMutateSuccess();
-      setIsRatingOpen(false);
+  const acceptMut = useAcceptOrder({
+    mutation: {
+      onSuccess: () => onMutateSuccess("Order accepted — buyer can now pay."),
+      onError,
     },
-    onError
-  }});
+  });
+  const rejectMut = useRejectOrder({
+    mutation: { onSuccess: () => onMutateSuccess("Order rejected."), onError },
+  });
+  const payMut = usePayOrder({
+    mutation: {
+      onSuccess: () =>
+        onMutateSuccess("Payment initiated — approve the prompt on your phone."),
+      onError,
+    },
+  });
+  const shipMut = useShipOrder({
+    mutation: {
+      onSuccess: () => onMutateSuccess("Order marked as shipped."),
+      onError,
+    },
+  });
+  const confirmMut = useConfirmReceipt({
+    mutation: {
+      onSuccess: () => onMutateSuccess("Receipt confirmed — releasing payment."),
+      onError,
+    },
+  });
+  const disputeMut = useRaiseDispute({
+    mutation: {
+      onSuccess: () => {
+        onMutateSuccess("Dispute submitted — escrow release paused.");
+        setIsDisputeOpen(false);
+        setDisputeReason("");
+      },
+      onError,
+    },
+  });
+  const rateMut = useCreateRating({
+    mutation: {
+      onSuccess: () => {
+        onMutateSuccess("Thank you for your rating.");
+        setIsRatingOpen(false);
+      },
+      onError,
+    },
+  });
 
   if (isLoading) {
-    return <div className="container p-8"><Skeleton className="h-[500px] w-full" /></div>;
+    return (
+      <div className="ts-container py-8 space-y-6">
+        <Skeleton className="h-24 w-full rounded-xl" />
+        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton className="h-[400px] w-full rounded-xl" />
+      </div>
+    );
   }
 
-  if (!order) return <div className="p-8 text-center">Order not found</div>;
+  if (!order) {
+    return <div className="p-8 text-center text-muted-foreground">Order not found</div>;
+  }
 
   const isBuyer = user?.id === order.buyerId;
   const isSupplier = user?.id === order.supplierId;
 
   return (
-    <div className="container mx-auto px-4 py-8 max-w-4xl">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            Order #{order.id.toString().padStart(6, '0')}
-            <OrderStatusBadge status={order.status} />
-          </h1>
-          <p className="text-muted-foreground mt-1">Placed on {new Date(order.createdAt).toLocaleString()}</p>
-        </div>
-      </div>
+    <div className="ts-container py-8 md:py-10 max-w-5xl pb-28 md:pb-10">
+      <PageHeader
+        eyebrow="Order"
+        title={formatOrderId(order.id)}
+        description={`Placed ${new Date(order.createdAt).toLocaleString("en-GH", { dateStyle: "medium", timeStyle: "short" })}`}
+        badge={
+          <OrderStatusBadge
+            status={order.status}
+            size={
+              order.status === OrderStatus.in_escrow ||
+              order.status === OrderStatus.disputed ||
+              order.status === OrderStatus.post_release_disputed
+                ? "lg"
+                : "md"
+            }
+          />
+        }
+        className="mb-6"
+      />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="md:col-span-2 space-y-6">
+      <EscrowBanner
+        status={order.status}
+        orderId={order.id}
+        amount={order.totalAmount}
+        className="mb-6"
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle>Order progress</CardTitle>
+            </CardHeader>
+            <CardContent className="pt-2">
+              <OrderTimeline status={order.status} />
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
-              <CardTitle>Order Details</CardTitle>
+              <CardTitle>Order details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-4 bg-muted/30 p-4 rounded-lg border">
+              <div className="flex items-center gap-4 bg-muted/40 p-4 rounded-lg border border-border/60">
                 {order.product?.photoUrl ? (
-                  <img src={order.product.photoUrl} alt={order.product.name} className="w-16 h-16 object-cover rounded" />
+                  <img
+                    src={order.product.photoUrl}
+                    alt={order.product.name}
+                    className="w-16 h-16 object-cover rounded-lg"
+                  />
                 ) : (
-                  <div className="w-16 h-16 bg-muted rounded flex items-center justify-center">
-                    <Package className="h-8 w-8 text-muted-foreground" />
+                  <div className="w-16 h-16 bg-muted rounded-lg flex items-center justify-center">
+                    <Package className="h-8 w-8 text-muted-foreground/50" />
                   </div>
                 )}
                 <div>
                   <h3 className="font-semibold text-lg">{order.product?.name}</h3>
-                  <p className="text-muted-foreground">{order.quantity} {order.product?.unit} × ₵{order.product?.unitPrice}</p>
+                  <p className="text-muted-foreground text-sm">
+                    {order.quantity} {order.product?.unit} ×{" "}
+                    {formatGhs(order.product?.unitPrice ?? "0")}
+                  </p>
                 </div>
               </div>
 
-              <div className="space-y-2 pt-4">
+              {(order.deliveryLocation || order.preferredDeliveryDate) && (
+                <div className="rounded-lg border border-border/60 bg-muted/30 p-4 space-y-2 text-sm">
+                  <p className="font-medium">Delivery details</p>
+                  {order.deliveryLocation && (
+                    <p className="flex items-start gap-2 text-muted-foreground">
+                      <MapPin className="h-4 w-4 shrink-0 mt-0.5" />
+                      {order.deliveryLocation}
+                    </p>
+                  )}
+                  {order.preferredDeliveryDate && (
+                    <p className="flex items-start gap-2 text-muted-foreground">
+                      <Calendar className="h-4 w-4 shrink-0 mt-0.5" />
+                      Preferred:{" "}
+                      {new Date(order.preferredDeliveryDate).toLocaleDateString(
+                        "en-GH",
+                        { dateStyle: "medium" },
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-2 pt-2">
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
-                  <span>₵{order.totalAmount}</span>
+                  <span className="font-medium">{formatGhs(order.totalAmount)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Platform Fee (Escrow)</span>
-                  <span>₵{order.platformFee}</span>
+                  <span className="text-muted-foreground">
+                    Platform fee
+                    <span className="block text-xs font-normal mt-0.5">
+                      Deducted from supplier payout at release
+                    </span>
+                  </span>
+                  <span className="text-muted-foreground">
+                    {formatGhs(order.platformFee)}
+                  </span>
                 </div>
-                <Separator className="my-2" />
-                <div className="flex justify-between font-bold text-lg">
-                  <span>Total</span>
-                  <span>₵{(parseFloat(order.totalAmount) + parseFloat(order.platformFee)).toFixed(2)}</span>
+                <Separator className="my-3" />
+                <div className="flex justify-between font-serif text-xl font-semibold">
+                  <span>{isBuyer ? "You pay" : "Order value"}</span>
+                  <span>{formatGhs(order.totalAmount)}</span>
                 </div>
+                {isSupplier && order.status === OrderStatus.in_escrow && (
+                  <div className="flex justify-between text-sm pt-2 border-t border-dashed">
+                    <span className="text-trust font-medium">Your payout (after fee)</span>
+                    <span className="text-trust font-semibold">
+                      {formatGhs(
+                        Number(order.totalAmount) - Number(order.platformFee),
+                      )}
+                    </span>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
 
-          {order.dispute && (
-            <Card className="border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-900/10">
+          {order.disputes && order.disputes.length > 0 && (
+            <>
+              {order.disputes.map((dispute) => (
+            <Card
+              key={dispute.id}
+              className={
+                dispute.status === "open"
+                  ? "border-red-200/80 bg-red-50/40 dark:border-red-900/40 dark:bg-red-950/20"
+                  : "border-border/80"
+              }
+            >
               <CardHeader>
-                <CardTitle className="text-red-800 dark:text-red-400 flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5" /> Active Dispute
+                <CardTitle
+                  className={`flex items-center gap-2 text-base font-sans ${
+                    dispute.status === "open"
+                      ? "text-red-800 dark:text-red-300"
+                      : ""
+                  }`}
+                >
+                  <AlertTriangle className="h-5 w-5" />
+                  {dispute.status === "open" ? "Active dispute" : "Dispute resolved"}
                 </CardTitle>
               </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm bg-background p-3 rounded-lg border">
+                  {dispute.reason}
+                </p>
+                {dispute.resolution && (
+                  <div className="text-sm">
+                    <p className="font-medium mb-1">Admin resolution</p>
+                    <p className="text-muted-foreground">{dispute.resolution}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+              ))}
+            </>
+          )}
+
+          {order.status === OrderStatus.rejected && order.rejectReason && (
+            <Card className="border-border/80">
+              <CardHeader>
+                <CardTitle className="text-base font-sans">Rejection reason</CardTitle>
+              </CardHeader>
               <CardContent>
-                <p className="font-medium mb-1">Reason for dispute:</p>
-                <p className="text-sm bg-background p-3 rounded border">{order.dispute.reason}</p>
-                <p className="text-xs text-muted-foreground mt-2">Our admin team will review this and resolve it shortly.</p>
+                <p className="text-sm text-muted-foreground">{order.rejectReason}</p>
               </CardContent>
             </Card>
           )}
 
           <Card>
             <CardHeader>
-              <CardTitle>Trade Parties</CardTitle>
+              <CardTitle>Trade parties</CardTitle>
             </CardHeader>
-            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div className={`p-4 rounded-lg border ${isBuyer ? 'bg-primary/5 border-primary/20' : 'bg-muted/30'}`}>
-                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-2">Buyer {isBuyer && "(You)"}</p>
-                <p className="font-medium">{order.buyer?.businessName}</p>
-                <p className="text-sm text-muted-foreground">{order.buyer?.location}</p>
-                <p className="text-sm text-muted-foreground">{order.buyer?.phone}</p>
-              </div>
-              <div className={`p-4 rounded-lg border ${isSupplier ? 'bg-primary/5 border-primary/20' : 'bg-muted/30'}`}>
-                <p className="text-xs font-semibold uppercase text-muted-foreground tracking-wider mb-2">Supplier {isSupplier && "(You)"}</p>
-                <p className="font-medium">{order.supplier?.businessName}</p>
-                <p className="text-sm text-muted-foreground">{order.supplier?.location}</p>
-                <p className="text-sm text-muted-foreground">{order.supplier?.phone}</p>
-              </div>
+            <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <PartyCard
+                label={`Buyer ${isBuyer ? "(You)" : ""}`}
+                name={order.buyer?.businessName ?? "—"}
+                location={order.buyer?.location}
+                phone={order.buyer?.phone}
+                highlighted={isBuyer}
+              />
+              <PartyCard
+                label={`Supplier ${isSupplier ? "(You)" : ""}`}
+                name={order.supplier?.businessName ?? "—"}
+                location={order.supplier?.location}
+                phone={order.supplier?.phone}
+                highlighted={isSupplier}
+              />
             </CardContent>
           </Card>
         </div>
 
-        <div className="space-y-6">
-          <Card className="border-primary/20 shadow-sm">
-            <CardHeader className="bg-primary/5 border-b pb-4">
-              <CardTitle className="text-lg">Next Steps</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-6 space-y-4">
-              {/* Supplier Actions */}
-              {isSupplier && order.status === OrderStatus.pending_supplier_confirmation && (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground mb-4">Buyer wants to place this order. Please confirm if you can fulfill it.</p>
-                  <Button className="w-full" onClick={() => acceptMut.mutate({ orderId })} disabled={acceptMut.isPending}>
-                    Accept Order
-                  </Button>
-                  <Button variant="outline" className="w-full text-destructive" onClick={() => rejectMut.mutate({ orderId })} disabled={rejectMut.isPending}>
-                    Reject Order
-                  </Button>
-                </div>
-              )}
-
-              {/* Buyer Actions */}
-              {isBuyer && order.status === OrderStatus.awaiting_payment && (
-                <div className="space-y-3">
-                  <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded border border-blue-200 dark:border-blue-800 mb-4">
-                    <ShieldCheck className="h-5 w-5 text-blue-600 dark:text-blue-400 mb-2" />
-                    <p className="text-sm text-blue-800 dark:text-blue-300">Your money will be held securely in escrow until you confirm receipt.</p>
-                  </div>
-                  <Button className="w-full" onClick={() => payMut.mutate({ orderId })} disabled={payMut.isPending}>
-                    Pay to Escrow
-                  </Button>
-                </div>
-              )}
-
-              {/* Supplier Actions */}
-              {isSupplier && order.status === OrderStatus.in_escrow && (
-                <div className="space-y-3">
-                  <div className="bg-green-50 dark:bg-green-900/20 p-3 rounded border border-green-200 dark:border-green-800 mb-4">
-                    <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 mb-2" />
-                    <p className="text-sm text-green-800 dark:text-green-300">Payment is secured in escrow. You can safely ship the goods.</p>
-                  </div>
-                  <Button className="w-full" onClick={() => shipMut.mutate({ orderId })} disabled={shipMut.isPending}>
-                    <Truck className="mr-2 h-4 w-4" /> Mark as Shipped
-                  </Button>
-                </div>
-              )}
-
-              {/* Buyer Actions */}
-              {isBuyer && order.status === OrderStatus.shipped && (
-                <div className="space-y-3">
-                  <p className="text-sm text-muted-foreground mb-4">Supplier marked goods as shipped. Please confirm when you receive them to release payment.</p>
-                  <Button className="w-full" onClick={() => confirmMut.mutate({ orderId })} disabled={confirmMut.isPending}>
-                    <CheckCircle2 className="mr-2 h-4 w-4" /> Confirm Receipt
-                  </Button>
-                  
-                  <Dialog open={isDisputeOpen} onOpenChange={setIsDisputeOpen}>
-                    <DialogTrigger asChild>
-                      <Button variant="outline" className="w-full text-red-600">Raise Dispute</Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Raise a Dispute</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <p className="text-sm text-muted-foreground">If there is an issue with the delivery or the goods, detail it below. Payment will be frozen until resolved.</p>
-                        <Textarea 
-                          placeholder="Describe the issue in detail..." 
-                          value={disputeReason} 
-                          onChange={(e) => setDisputeReason(e.target.value)}
-                          rows={4}
-                        />
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setIsDisputeOpen(false)}>Cancel</Button>
-                        <Button 
-                          variant="destructive" 
-                          onClick={() => disputeMut.mutate({ orderId, data: { reason: disputeReason } })}
-                          disabled={!disputeReason.trim() || disputeMut.isPending}
-                        >
-                          Submit Dispute
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              )}
-
-              {/* Waiting states (no action needed) */}
-              {isBuyer && order.status === OrderStatus.pending_supplier_confirmation && (
-                <p className="text-sm text-center text-muted-foreground py-4 flex flex-col items-center">
-                  <Clock className="h-8 w-8 text-muted-foreground/50 mb-2" />
-                  Waiting for supplier to confirm availability.
-                </p>
-              )}
-              {isSupplier && order.status === OrderStatus.awaiting_payment && (
-                <p className="text-sm text-center text-muted-foreground py-4 flex flex-col items-center">
-                  <Clock className="h-8 w-8 text-muted-foreground/50 mb-2" />
-                  Waiting for buyer to make escrow payment.
-                </p>
-              )}
-              {isSupplier && order.status === OrderStatus.shipped && (
-                <p className="text-sm text-center text-muted-foreground py-4 flex flex-col items-center">
-                  <Clock className="h-8 w-8 text-muted-foreground/50 mb-2" />
-                  Waiting for buyer to confirm receipt. Payment will auto-release in 72h.
-                </p>
-              )}
-              {order.status === OrderStatus.payment_processing && (
-                <p className="text-sm text-center text-muted-foreground py-4 flex flex-col items-center">
-                  <Clock className="h-8 w-8 text-muted-foreground/50 mb-2 animate-spin" />
-                  Payment is processing...
-                </p>
-              )}
-              {order.status === OrderStatus.completed && (
-                <div className="space-y-4">
-                  <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800 text-center">
-                    <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400 mx-auto mb-2" />
-                    <p className="font-semibold text-green-800 dark:text-green-300">Order Completed</p>
-                    <p className="text-xs text-green-700 dark:text-green-400 mt-1">Payment has been released to the supplier.</p>
-                  </div>
-                  
-                  {isBuyer && (
-                    <Dialog open={isRatingOpen} onOpenChange={setIsRatingOpen}>
-                      <DialogTrigger asChild>
-                        <Button className="w-full" variant="outline">
-                          <Star className="mr-2 h-4 w-4" /> Rate Supplier
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Rate this Trade</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-4 py-4">
-                          <p className="text-sm text-muted-foreground">How was your experience trading with {order.supplier?.businessName}?</p>
-                          <div className="flex justify-center gap-2">
-                            {[1, 2, 3, 4, 5].map(star => (
-                              <Star 
-                                key={star} 
-                                className={`h-8 w-8 cursor-pointer ${star <= ratingStars ? 'fill-yellow-400 text-yellow-500' : 'text-muted'}`}
-                                onClick={() => setRatingStars(star)}
-                              />
-                            ))}
-                          </div>
-                          <Textarea 
-                            placeholder="Add a comment (optional)..." 
-                            value={ratingComment} 
-                            onChange={(e) => setRatingComment(e.target.value)}
-                            rows={3}
-                          />
-                        </div>
-                        <DialogFooter>
-                          <Button variant="outline" onClick={() => setIsRatingOpen(false)}>Cancel</Button>
-                          <Button 
-                            onClick={() => rateMut.mutate({ orderId, data: { stars: ratingStars, comment: ratingComment } })}
-                            disabled={rateMut.isPending}
-                          >
-                            Submit Rating
-                          </Button>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        <div>
+          <OrderActionPanel
+            order={order}
+            isBuyer={!!isBuyer}
+            isSupplier={!!isSupplier}
+            disputeReason={disputeReason}
+            onDisputeReasonChange={setDisputeReason}
+            isDisputeOpen={isDisputeOpen}
+            onDisputeOpenChange={setIsDisputeOpen}
+            isRatingOpen={isRatingOpen}
+            onRatingOpenChange={setIsRatingOpen}
+            ratingStars={ratingStars}
+            onRatingStarsChange={setRatingStars}
+            ratingComment={ratingComment}
+            onRatingCommentChange={setRatingComment}
+            onAccept={() => acceptMut.mutate({ id: orderId })}
+            onReject={(reason) =>
+              rejectMut.mutate({
+                id: orderId,
+                data: reason ? { reason } : undefined,
+              })
+            }
+            onPay={() => payMut.mutate({ id: orderId })}
+            onShip={() => shipMut.mutate({ id: orderId })}
+            onConfirm={() => confirmMut.mutate({ id: orderId })}
+            onDispute={() =>
+              disputeMut.mutate({ id: orderId, data: { reason: disputeReason } })
+            }
+            onRate={() =>
+              rateMut.mutate({
+                id: orderId,
+                data: { stars: ratingStars, comment: ratingComment },
+              })
+            }
+            isAccepting={acceptMut.isPending}
+            isRejecting={rejectMut.isPending}
+            isPaying={payMut.isPending}
+            isShipping={shipMut.isPending}
+            isConfirming={confirmMut.isPending}
+            isDisputing={disputeMut.isPending}
+            isRating={rateMut.isPending}
+          />
         </div>
       </div>
+
+      {/* Mobile sticky action bar */}
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t bg-background/95 backdrop-blur-md p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-ts-md">
+        <MobileActionBar
+          order={order}
+          isBuyer={!!isBuyer}
+          isSupplier={!!isSupplier}
+          onAccept={() => acceptMut.mutate({ id: orderId })}
+          onPay={() => payMut.mutate({ id: orderId })}
+          onShip={() => shipMut.mutate({ id: orderId })}
+          onConfirm={() => confirmMut.mutate({ id: orderId })}
+          isAccepting={acceptMut.isPending}
+          isPaying={payMut.isPending}
+          isShipping={shipMut.isPending}
+          isConfirming={confirmMut.isPending}
+        />
+      </div>
     </div>
+  );
+}
+
+function PartyCard({
+  label,
+  name,
+  location,
+  phone,
+  highlighted,
+}: {
+  label: string;
+  name: string;
+  location?: string;
+  phone?: string;
+  highlighted: boolean;
+}) {
+  return (
+    <div
+      className={`p-4 rounded-lg border ${
+        highlighted ? "border-primary/25 bg-primary/5" : "bg-muted/30 border-border/60"
+      }`}
+    >
+      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">
+        {label}
+      </p>
+      <p className="font-semibold">{name}</p>
+      {location && (
+        <p className="text-sm text-muted-foreground mt-1">{location}</p>
+      )}
+      {phone && <p className="text-sm text-muted-foreground">{phone}</p>}
+    </div>
+  );
+}
+
+function MobileActionBar({
+  order,
+  isBuyer,
+  isSupplier,
+  onAccept,
+  onPay,
+  onShip,
+  onConfirm,
+  isAccepting,
+  isPaying,
+  isShipping,
+  isConfirming,
+}: {
+  order: OrderDetail;
+  isBuyer: boolean;
+  isSupplier: boolean;
+  onAccept: () => void;
+  onPay: () => void;
+  onShip: () => void;
+  onConfirm: () => void;
+  isAccepting: boolean;
+  isPaying: boolean;
+  isShipping: boolean;
+  isConfirming: boolean;
+}) {
+  if (isSupplier && order.status === OrderStatus.pending_supplier_confirmation) {
+    return (
+      <button
+        type="button"
+        className="w-full min-h-12 rounded-lg bg-primary text-primary-foreground font-semibold"
+        onClick={onAccept}
+        disabled={isAccepting}
+      >
+        Accept order
+      </button>
+    );
+  }
+
+  if (isBuyer && order.status === OrderStatus.awaiting_payment) {
+    return (
+      <button
+        type="button"
+        className="w-full min-h-12 rounded-lg bg-cta text-cta-foreground font-semibold"
+        onClick={onPay}
+        disabled={isPaying}
+      >
+        Pay {formatGhs(order.totalAmount)} to escrow
+      </button>
+    );
+  }
+
+  if (isSupplier && order.status === OrderStatus.in_escrow) {
+    return (
+      <button
+        type="button"
+        className="w-full min-h-12 rounded-lg bg-trust text-trust-foreground font-semibold"
+        onClick={onShip}
+        disabled={isShipping}
+      >
+        Mark as shipped
+      </button>
+    );
+  }
+
+  if (isBuyer && order.status === OrderStatus.shipped) {
+    return (
+      <button
+        type="button"
+        className="w-full min-h-12 rounded-lg bg-trust text-trust-foreground font-semibold"
+        onClick={onConfirm}
+        disabled={isConfirming}
+      >
+        Confirm receipt
+      </button>
+    );
+  }
+
+  if (isProcessingStatus(order.status)) {
+    return (
+      <p className="text-center text-sm text-muted-foreground py-2">
+        Processing… status updates automatically
+      </p>
+    );
+  }
+
+  return (
+    <p className="text-center text-sm text-muted-foreground py-2">
+      Scroll up for full order details
+    </p>
   );
 }

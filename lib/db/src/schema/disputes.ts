@@ -16,6 +16,13 @@ export const disputeStatusEnum = pgEnum("dispute_status", [
   "resolved",
 ]);
 
+export const disputeCategoryEnum = pgEnum("dispute_category", [
+  "quality",
+  "non_delivery",
+  "quantity",
+  "other",
+]);
+
 export const disputesTable = pgTable("disputes", {
   id: serial("id").primaryKey(),
   orderId: integer("order_id")
@@ -26,10 +33,26 @@ export const disputesTable = pgTable("disputes", {
     .references(() => usersTable.id),
   reason: text("reason").notNull(),
   status: disputeStatusEnum("status").notNull().default("open"),
+  category: disputeCategoryEnum("category"),
+  evidenceUrls: text("evidence_urls").array(),
   resolution: text("resolution"),
   resolvedByAdminId: integer("resolved_by_admin_id").references(
     () => usersTable.id,
   ),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const disputeRepliesTable = pgTable("dispute_replies", {
+  id: serial("id").primaryKey(),
+  disputeId: integer("dispute_id")
+    .notNull()
+    .references(() => disputesTable.id),
+  authorId: integer("author_id")
+    .notNull()
+    .references(() => usersTable.id),
+  message: text("message").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -41,3 +64,4 @@ export const insertDisputeSchema = createInsertSchema(disputesTable).omit({
 });
 export type InsertDispute = z.infer<typeof insertDisputeSchema>;
 export type Dispute = typeof disputesTable.$inferSelect;
+export type DisputeReply = typeof disputeRepliesTable.$inferSelect;

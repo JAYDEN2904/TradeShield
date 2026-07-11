@@ -10,9 +10,9 @@ import type { Order } from './order';
 import type { Product } from './product';
 import type { User } from './user';
 
-export type OrderDetail = Order & ({
+export type OrderDetail = Order & {
   product?: Product;
   buyer?: User;
   supplier?: User;
-  dispute?: Dispute | null;
-});
+  disputes?: Dispute[];
+};

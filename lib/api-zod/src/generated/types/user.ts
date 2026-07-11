@@ -5,6 +5,7 @@
  * TradeShield B2B escrow marketplace API
  * OpenAPI spec version: 0.1.0
  */
+import type { KycStatus } from './kycStatus';
 import type { UserRole } from './userRole';
 
 export interface User {
@@ -18,5 +19,8 @@ export interface User {
   /** @nullable */
   payoutMomoNumber?: string | null;
   isAdmin: boolean;
+  kycStatus: KycStatus;
+  /** @nullable */
+  ghanaCardNumber?: string | null;
   createdAt: Date;
 }

@@ -22,6 +22,16 @@ export const UserRole = {
   both: 'both',
 } as const;
 
+export type KycStatus = typeof KycStatus[keyof typeof KycStatus];
+
+
+export const KycStatus = {
+  none: 'none',
+  pending: 'pending',
+  approved: 'approved',
+  rejected: 'rejected',
+} as const;
+
 export interface User {
   id: number;
   phone: string;
@@ -33,6 +43,9 @@ export interface User {
   /** @nullable */
   payoutMomoNumber?: string | null;
   isAdmin: boolean;
+  kycStatus: KycStatus;
+  /** @nullable */
+  ghanaCardNumber?: string | null;
   createdAt: string;
 }
 
@@ -49,19 +62,55 @@ export interface UserUpdate {
 export interface SupplierStats {
   totalOrders: number;
   completedOrders: number;
-  completionRate: number;
+  /**
+     * Share of terminal orders that completed; null when no terminal history
+     * @nullable
+     */
+  completionRate: number | null;
   /** @nullable */
   averageRating: number | null;
+  /** True when fewer than 5 completed orders */
+  isNewSupplier: boolean;
+  /** False when supplier has zero completed terminal trades */
+  hasTransactionHistory: boolean;
 }
 
 export interface OtpRequestInput {
-  /** @minLength 6 */
+  /**
+     * Ghana mobile number (+233 or local 0… format)
+     * @minLength 9
+     */
   phone: string;
 }
 
 export interface OtpRequestResult {
   message: string;
   debugCode?: string;
+  /** Seconds until another OTP can be requested */
+  retryAfterSeconds?: number;
+}
+
+export interface LoginInput {
+  /** @minLength 9 */
+  phone: string;
+  /** @minLength 8 */
+  password: string;
+}
+
+export interface ForgotPasswordInput {
+  /** @minLength 9 */
+  phone: string;
+}
+
+export interface ResetPasswordInput {
+  phone: string;
+  /**
+     * @minLength 6
+     * @maxLength 6
+     */
+  code: string;
+  /** @minLength 8 */
+  password: string;
 }
 
 export interface OtpVerifyInput {
@@ -77,6 +126,8 @@ export interface OtpVerifyResult {
 
 export interface RegisterInput {
   phone: string;
+  /** @minLength 8 */
+  password: string;
   /** @minLength 1 */
   businessName: string;
   /** @minLength 1 */
@@ -100,6 +151,15 @@ export interface Product {
   isActive: boolean;
   createdAt: string;
 }
+
+export type CatalogProduct = Product & ({
+  supplierBusinessName: string;
+  supplierLocation: string;
+  supplierCompletedOrders: number;
+  /** @nullable */
+  supplierAverageRating?: number | null;
+  supplierIsNew: boolean;
+});
 
 export interface ProductInput {
   /** @minLength 1 */
@@ -142,9 +202,12 @@ export const OrderStatus = {
   payment_processing: 'payment_processing',
   in_escrow: 'in_escrow',
   shipped: 'shipped',
+  payout_processing: 'payout_processing',
   completed: 'completed',
   disputed: 'disputed',
+  post_release_disputed: 'post_release_disputed',
   expired: 'expired',
+  rejected: 'rejected',
   payout_failed: 'payout_failed',
 } as const;
 
@@ -162,6 +225,19 @@ export interface Order {
   shippedAt?: string | null;
   /** @nullable */
   autoReleaseAt?: string | null;
+  /** @nullable */
+  deliveryLocation?: string | null;
+  /** @nullable */
+  preferredDeliveryDate?: string | null;
+  /** @nullable */
+  rejectReason?: string | null;
+  /** @nullable */
+  expiresAt?: string | null;
+  autoReleaseReminderSent?: boolean;
+  /** @nullable */
+  confirmPhotoUrl?: string | null;
+  /** Product display name (included when listing orders) */
+  productName?: string;
 }
 
 export type DisputeStatus = typeof DisputeStatus[keyof typeof DisputeStatus];
@@ -172,12 +248,25 @@ export const DisputeStatus = {
   resolved: 'resolved',
 } as const;
 
+export type DisputeCategory = typeof DisputeCategory[keyof typeof DisputeCategory];
+
+
+export const DisputeCategory = {
+  quality: 'quality',
+  non_delivery: 'non_delivery',
+  quantity: 'quantity',
+  other: 'other',
+} as const;
+
 export interface Dispute {
   id: number;
   orderId: number;
   raisedBy: number;
   reason: string;
   status: DisputeStatus;
+  category?: DisputeCategory | null;
+  /** @nullable */
+  evidenceUrls?: string[] | null;
   /** @nullable */
   resolution?: string | null;
   /** @nullable */
@@ -185,28 +274,70 @@ export interface Dispute {
   createdAt: string;
 }
 
-export type OrderDetail = Order & ({
+export type OrderDetail = Order & {
   product?: Product;
   buyer?: User;
   supplier?: User;
-  dispute?: Dispute | null;
-});
+  disputes?: Dispute[];
+};
 
 export interface OrderInput {
   productId: number;
   /** @minimum 1 */
   quantity: number;
+  /** @minLength 1 */
+  deliveryLocation: string;
+  preferredDeliveryDate: string;
+}
+
+export interface RejectOrderInput {
+  /** @minLength 1 */
+  reason?: string;
+}
+
+export interface AdminMetrics {
+  totalVolumeGhs: string;
+  totalPlatformFeesGhs: string;
+  activeBuyers: number;
+  activeSuppliers: number;
+  totalOrders: number;
+  completedOrders: number;
+  completionRate: number;
+  openDisputes: number;
+}
+
+export interface AdminActionInput {
+  notes?: string;
 }
 
 export interface DisputeInput {
   /** @minLength 1 */
   reason: string;
+  category?: DisputeCategory;
+  evidenceUrls?: string[];
+}
+
+export interface DisputeReplyInput {
+  /** @minLength 1 */
+  message: string;
+}
+
+export interface DisputeReply {
+  id: number;
+  disputeId: number;
+  authorId: number;
+  message: string;
+  createdAt: string;
 }
 
 export interface DisputeResolutionInput {
   targetStatus: OrderStatus;
   /** @minLength 1 */
   resolution: string;
+  /** Optional GHS amount to refund to buyer (partial split) */
+  buyerAmount?: string;
+  /** Optional GHS amount to release to supplier (partial split) */
+  supplierAmount?: string;
 }
 
 export interface Rating {
@@ -242,7 +373,7 @@ export const PaymentWebhookInputStatus = {
 } as const;
 
 export interface PaymentWebhookInput {
-  orderId: number;
+  orderId?: number;
   moolreReference: string;
   status: PaymentWebhookInputStatus;
 }
@@ -256,17 +387,160 @@ export const DisbursementWebhookInputStatus = {
 } as const;
 
 export interface DisbursementWebhookInput {
-  orderId: number;
+  orderId?: number;
   moolreReference: string;
   status: DisbursementWebhookInputStatus;
+}
+
+export interface ConfirmReceiptInput {
+  /** Optional photo URL attached at receipt confirmation */
+  photoUrl?: string;
+}
+
+export type EarningsPeriod = typeof EarningsPeriod[keyof typeof EarningsPeriod];
+
+
+export const EarningsPeriod = {
+  week: 'week',
+  month: 'month',
+  all: 'all',
+} as const;
+
+export interface SupplierDashboardEarnings {
+  period: EarningsPeriod;
+  /** Net payout (totalAmount - platformFee) for completed orders in the selected period */
+  earnedGhs: string;
+  /** Sum of totalAmount for in_escrow and shipped orders (funds are secured) */
+  inEscrowGhs: string;
+  /** Sum of totalAmount for payout_processing orders */
+  pendingReleaseGhs: string;
+}
+
+export interface SupplierDashboardCatalog {
+  activeCount: number;
+  inactiveCount: number;
+  /** Active products with stockQty === 0 */
+  outOfStockCount: number;
+  /** Active products where 0 < stockQty < moq */
+  lowStockCount: number;
+}
+
+export interface SupplierDashboardOnboarding {
+  hasProducts: boolean;
+  hasCompletedOrder: boolean;
+}
+
+export interface SupplierDashboard {
+  earnings: SupplierDashboardEarnings;
+  needsAction: OrderDetail[];
+  recentOrders: OrderDetail[];
+  catalog: SupplierDashboardCatalog;
+  trust: SupplierStats;
+  onboarding: SupplierDashboardOnboarding;
 }
 
 export interface WebhookAck {
   received: boolean;
 }
 
+export type KycDocType = typeof KycDocType[keyof typeof KycDocType];
+
+
+export const KycDocType = {
+  ghana_card_front: 'ghana_card_front',
+  ghana_card_back: 'ghana_card_back',
+} as const;
+
+export interface KycDocument {
+  docType: KycDocType;
+  storageUrl: string;
+}
+
+export type KycSubmitInputDocUrls = {
+  ghana_card_front: string;
+  ghana_card_back: string;
+};
+
+export interface KycSubmitInput {
+  /** Ghana Card number in format GHA-XXXXXXXXX-X */
+  ghanaCardNumber: string;
+  docUrls: KycSubmitInputDocUrls;
+}
+
+export interface KycSubmitResponse {
+  submitted: boolean;
+}
+
+export interface KycStatusResponse {
+  kycStatus: KycStatus;
+  /** @nullable */
+  kycRejectionReason?: string | null;
+  /** @nullable */
+  ghanaCardNumber?: string | null;
+}
+
+export interface KycRejectInput {
+  reason: string;
+}
+
+export interface AdminKycQueueItem {
+  id: number;
+  phone: string;
+  businessName: string;
+  role: UserRole;
+  kycSubmittedAt: string;
+  /** @nullable */
+  ghanaCardNumber?: string | null;
+  documents: KycDocument[];
+}
+
+export interface AdminKycUserItem {
+  id: number;
+  phone: string;
+  businessName: string;
+  role: UserRole;
+  kycStatus: KycStatus;
+  /** @nullable */
+  kycSubmittedAt?: string | null;
+  /** @nullable */
+  kycReviewedAt?: string | null;
+  /** @nullable */
+  ghanaCardNumber?: string | null;
+  /** @nullable */
+  kycRejectionReason?: string | null;
+  documents: KycDocument[];
+}
+
+export interface UploadKycDocumentResponse {
+  url: string;
+}
+
+export type GetSupplierDashboardParams = {
+earningsPeriod?: GetSupplierDashboardEarningsPeriod;
+};
+
+export type GetSupplierDashboardEarningsPeriod = typeof GetSupplierDashboardEarningsPeriod[keyof typeof GetSupplierDashboardEarningsPeriod];
+
+
+export const GetSupplierDashboardEarningsPeriod = {
+  week: 'week',
+  month: 'month',
+  all: 'all',
+} as const;
+
 export type ListProductsParams = {
 category?: string;
+/**
+ * Filter by supplier region/town (substring match)
+ */
+location?: string;
+/**
+ * Match product name or supplier business name
+ */
+search?: string;
+/**
+ * When set, returns all listings for that supplier including inactive
+ */
 supplierId?: number;
 };
 
@@ -301,4 +575,15 @@ export const ListDisputesStatus = {
   open: 'open',
   resolved: 'resolved',
 } as const;
+
+export type UploadKycDocumentBody = {
+  file: Blob;
+};
+
+export type GetAdminKycUsersParams = {
+/**
+ * Filter by KYC status
+ */
+status?: KycStatus;
+};
 

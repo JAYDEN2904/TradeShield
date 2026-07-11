@@ -10,6 +10,7 @@ export const otpCodesTable = pgTable("otp_codes", {
   code: text("code").notNull(),
   used: boolean("used").notNull().default(false),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  purpose: text("purpose").notNull().default("registration"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),

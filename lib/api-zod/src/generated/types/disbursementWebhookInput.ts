@@ -8,7 +8,7 @@
 import type { DisbursementWebhookInputStatus } from './disbursementWebhookInputStatus';
 
 export interface DisbursementWebhookInput {
-  orderId: number;
+  orderId?: number;
   moolreReference: string;
   status: DisbursementWebhookInputStatus;
 }

@@ -9,4 +9,6 @@
 export interface OtpRequestResult {
   message: string;
   debugCode?: string;
+  /** Seconds until another OTP can be requested */
+  retryAfterSeconds?: number;
 }

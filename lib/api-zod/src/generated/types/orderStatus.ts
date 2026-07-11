@@ -15,8 +15,11 @@ export const OrderStatus = {
   payment_processing: 'payment_processing',
   in_escrow: 'in_escrow',
   shipped: 'shipped',
+  payout_processing: 'payout_processing',
   completed: 'completed',
   disputed: 'disputed',
+  post_release_disputed: 'post_release_disputed',
   expired: 'expired',
+  rejected: 'rejected',
   payout_failed: 'payout_failed',
 } as const;

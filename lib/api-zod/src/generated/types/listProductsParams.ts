@@ -8,5 +8,16 @@
 
 export type ListProductsParams = {
 category?: string;
+/**
+ * Filter by supplier region/town (substring match)
+ */
+location?: string;
+/**
+ * Match product name or supplier business name
+ */
+search?: string;
+/**
+ * When set, returns all listings for that supplier including inactive
+ */
 supplierId?: number;
 };

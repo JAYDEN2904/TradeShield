@@ -2,8 +2,11 @@
  * Idempotent demo seed for TradeShield. Safe to re-run — checks phone
  * numbers before inserting so it never duplicates rows.
  */
+import bcrypt from "bcryptjs";
 import { eq } from "drizzle-orm";
 import { db, usersTable, productsTable, ordersTable } from "@workspace/db";
+
+const DEMO_PASSWORD = "demo12345";
 
 async function ensureUser(input: {
   phone: string;
@@ -14,13 +17,25 @@ async function ensureUser(input: {
   payoutMomoNumber?: string;
   isAdmin?: boolean;
 }) {
+  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+
   const [existing] = await db
     .select()
     .from(usersTable)
     .where(eq(usersTable.phone, input.phone));
-  if (existing) return existing;
 
-  const [created] = await db.insert(usersTable).values(input).returning();
+  if (existing) {
+    await db
+      .update(usersTable)
+      .set({ passwordHash })
+      .where(eq(usersTable.id, existing.id));
+    return existing;
+  }
+
+  const [created] = await db
+    .insert(usersTable)
+    .values({ ...input, passwordHash })
+    .returning();
   if (!created) throw new Error(`Failed to create user ${input.phone}`);
   return created;
 }
@@ -58,6 +73,7 @@ async function main() {
     businessName: "TradeShield Admin",
     location: "Accra, Greater Accra",
     isAdmin: true,
+    payoutMomoNumber: "0200000099",
   });
 
   const existingProducts = await db
@@ -116,11 +132,15 @@ async function main() {
         totalAmount: "4500.00",
         platformFee: "90.00",
         status: "pending_supplier_confirmation",
+        deliveryLocation: "Tema Community 4, Greater Accra",
+        preferredDeliveryDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       });
     }
   }
 
   console.log("TradeShield seed complete.");
+  console.log(`Demo password for all seed users: ${DEMO_PASSWORD}`);
 }
 
 main()

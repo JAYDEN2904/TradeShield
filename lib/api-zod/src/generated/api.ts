@@ -18,24 +18,103 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
- * @summary Request a mock OTP code for a phone number
+ * @summary Log in with phone number and password
  */
-export const requestOtpBodyPhoneMin = 6;
+export const loginBodyPhoneMin = 9;
+
+export const loginBodyPasswordMin = 8;
 
 
 
-export const RequestOtpBody = zod.object({
-  "phone": zod.string().min(requestOtpBodyPhoneMin)
+export const LoginBody = zod.object({
+  "phone": zod.string().min(loginBodyPhoneMin),
+  "password": zod.string().min(loginBodyPasswordMin)
 })
 
-export const RequestOtpResponse = zod.object({
-  "message": zod.string(),
-  "debugCode": zod.string().optional()
+export const LoginResponse = zod.object({
+  "id": zod.number(),
+  "phone": zod.string(),
+  "role": zod.enum(['buyer', 'supplier', 'both']),
+  "businessName": zod.string(),
+  "location": zod.string(),
+  "category": zod.string().nullish(),
+  "payoutMomoNumber": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
 })
 
 
 /**
- * @summary Verify an OTP code. Logs in if the phone already has an account.
+ * @summary Request an OTP to reset password
+ */
+export const forgotPasswordBodyPhoneMin = 9;
+
+
+
+export const ForgotPasswordBody = zod.object({
+  "phone": zod.string().min(forgotPasswordBodyPhoneMin)
+})
+
+export const ForgotPasswordResponse = zod.object({
+  "message": zod.string(),
+  "debugCode": zod.string().optional(),
+  "retryAfterSeconds": zod.number().optional().describe('Seconds until another OTP can be requested')
+})
+
+
+/**
+ * @summary Reset password using OTP verification
+ */
+export const resetPasswordBodyCodeMin = 6;
+export const resetPasswordBodyCodeMax = 6;
+
+export const resetPasswordBodyPasswordMin = 8;
+
+
+
+export const ResetPasswordBody = zod.object({
+  "phone": zod.string(),
+  "code": zod.string().min(resetPasswordBodyCodeMin).max(resetPasswordBodyCodeMax),
+  "password": zod.string().min(resetPasswordBodyPasswordMin)
+})
+
+export const ResetPasswordResponse = zod.object({
+  "id": zod.number(),
+  "phone": zod.string(),
+  "role": zod.enum(['buyer', 'supplier', 'both']),
+  "businessName": zod.string(),
+  "location": zod.string(),
+  "category": zod.string().nullish(),
+  "payoutMomoNumber": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Request an OTP code for registration
+ */
+export const requestOtpBodyPhoneMin = 9;
+
+
+
+export const RequestOtpBody = zod.object({
+  "phone": zod.string().min(requestOtpBodyPhoneMin).describe('Ghana mobile number (+233 or local 0… format)')
+})
+
+export const RequestOtpResponse = zod.object({
+  "message": zod.string(),
+  "debugCode": zod.string().optional(),
+  "retryAfterSeconds": zod.number().optional().describe('Seconds until another OTP can be requested')
+})
+
+
+/**
+ * @summary Verify registration OTP before completing signup
  */
 export const VerifyOtpBody = zod.object({
   "phone": zod.string(),
@@ -54,6 +133,8 @@ export const VerifyOtpResponse = zod.object({
   "category": zod.string().nullish(),
   "payoutMomoNumber": zod.string().nullish(),
   "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 }),zod.null()]).optional()
 })
@@ -62,12 +143,15 @@ export const VerifyOtpResponse = zod.object({
 /**
  * @summary Complete registration for a phone verified via /auth/verify-otp
  */
+export const registerBodyPasswordMin = 8;
+
 
 
 
 
 export const RegisterBody = zod.object({
   "phone": zod.string(),
+  "password": zod.string().min(registerBodyPasswordMin),
   "businessName": zod.string().min(1),
   "location": zod.string().min(1),
   "role": zod.enum(['buyer', 'supplier', 'both']),
@@ -84,6 +168,8 @@ export const RegisterResponse = zod.object({
   "category": zod.string().nullish(),
   "payoutMomoNumber": zod.string().nullish(),
   "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -100,6 +186,8 @@ export const GetCurrentUserResponse = zod.object({
   "category": zod.string().nullish(),
   "payoutMomoNumber": zod.string().nullish(),
   "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -128,6 +216,8 @@ export const UpdateCurrentUserResponse = zod.object({
   "category": zod.string().nullish(),
   "payoutMomoNumber": zod.string().nullish(),
   "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -136,6 +226,187 @@ export const UpdateCurrentUserResponse = zod.object({
  * @summary Log out the current session
  */
 export const LogoutResponse = zod.void()
+
+
+/**
+ * @summary Aggregated supplier dashboard data (auth required, supplier/both role only)
+ */
+export const getSupplierDashboardQueryEarningsPeriodDefault = `month`;
+
+export const GetSupplierDashboardQueryParams = zod.object({
+  "earningsPeriod": zod.enum(['week', 'month', 'all']).default(getSupplierDashboardQueryEarningsPeriodDefault)
+})
+
+export const GetSupplierDashboardResponse = zod.object({
+  "earnings": zod.object({
+  "period": zod.enum(['week', 'month', 'all']),
+  "earnedGhs": zod.string().describe('Net payout (totalAmount - platformFee) for completed orders in the selected period'),
+  "inEscrowGhs": zod.string().describe('Sum of totalAmount for in_escrow and shipped orders (funds are secured)'),
+  "pendingReleaseGhs": zod.string().describe('Sum of totalAmount for payout_processing orders')
+}),
+  "needsAction": zod.array(zod.object({
+  "id": zod.number(),
+  "buyerId": zod.number(),
+  "supplierId": zod.number(),
+  "productId": zod.number(),
+  "quantity": zod.number(),
+  "totalAmount": zod.string(),
+  "platformFee": zod.string(),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
+  "createdAt": zod.coerce.date(),
+  "shippedAt": zod.coerce.date().nullish(),
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
+}).and(zod.object({
+  "product": zod.object({
+  "id": zod.number(),
+  "supplierId": zod.number(),
+  "name": zod.string(),
+  "category": zod.string(),
+  "unitPrice": zod.string(),
+  "moq": zod.number(),
+  "unit": zod.string(),
+  "stockQty": zod.number(),
+  "photoUrl": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.coerce.date()
+}).optional(),
+  "buyer": zod.object({
+  "id": zod.number(),
+  "phone": zod.string(),
+  "role": zod.enum(['buyer', 'supplier', 'both']),
+  "businessName": zod.string(),
+  "location": zod.string(),
+  "category": zod.string().nullish(),
+  "payoutMomoNumber": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}).optional(),
+  "supplier": zod.object({
+  "id": zod.number(),
+  "phone": zod.string(),
+  "role": zod.enum(['buyer', 'supplier', 'both']),
+  "businessName": zod.string(),
+  "location": zod.string(),
+  "category": zod.string().nullish(),
+  "payoutMomoNumber": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}).optional(),
+  "disputes": zod.array(zod.object({
+  "id": zod.number(),
+  "orderId": zod.number(),
+  "raisedBy": zod.number(),
+  "reason": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "category": zod.union([zod.enum(['quality', 'non_delivery', 'quantity', 'other']),zod.null()]).optional(),
+  "evidenceUrls": zod.array(zod.string()).nullish(),
+  "resolution": zod.string().nullish(),
+  "resolvedByAdminId": zod.number().nullish(),
+  "createdAt": zod.coerce.date()
+})).optional()
+}))),
+  "recentOrders": zod.array(zod.object({
+  "id": zod.number(),
+  "buyerId": zod.number(),
+  "supplierId": zod.number(),
+  "productId": zod.number(),
+  "quantity": zod.number(),
+  "totalAmount": zod.string(),
+  "platformFee": zod.string(),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
+  "createdAt": zod.coerce.date(),
+  "shippedAt": zod.coerce.date().nullish(),
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
+}).and(zod.object({
+  "product": zod.object({
+  "id": zod.number(),
+  "supplierId": zod.number(),
+  "name": zod.string(),
+  "category": zod.string(),
+  "unitPrice": zod.string(),
+  "moq": zod.number(),
+  "unit": zod.string(),
+  "stockQty": zod.number(),
+  "photoUrl": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.coerce.date()
+}).optional(),
+  "buyer": zod.object({
+  "id": zod.number(),
+  "phone": zod.string(),
+  "role": zod.enum(['buyer', 'supplier', 'both']),
+  "businessName": zod.string(),
+  "location": zod.string(),
+  "category": zod.string().nullish(),
+  "payoutMomoNumber": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}).optional(),
+  "supplier": zod.object({
+  "id": zod.number(),
+  "phone": zod.string(),
+  "role": zod.enum(['buyer', 'supplier', 'both']),
+  "businessName": zod.string(),
+  "location": zod.string(),
+  "category": zod.string().nullish(),
+  "payoutMomoNumber": zod.string().nullish(),
+  "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
+  "createdAt": zod.coerce.date()
+}).optional(),
+  "disputes": zod.array(zod.object({
+  "id": zod.number(),
+  "orderId": zod.number(),
+  "raisedBy": zod.number(),
+  "reason": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "category": zod.union([zod.enum(['quality', 'non_delivery', 'quantity', 'other']),zod.null()]).optional(),
+  "evidenceUrls": zod.array(zod.string()).nullish(),
+  "resolution": zod.string().nullish(),
+  "resolvedByAdminId": zod.number().nullish(),
+  "createdAt": zod.coerce.date()
+})).optional()
+}))),
+  "catalog": zod.object({
+  "activeCount": zod.number(),
+  "inactiveCount": zod.number(),
+  "outOfStockCount": zod.number().describe('Active products with stockQty === 0'),
+  "lowStockCount": zod.number().describe('Active products where 0 < stockQty < moq')
+}),
+  "trust": zod.object({
+  "totalOrders": zod.number(),
+  "completedOrders": zod.number(),
+  "completionRate": zod.number().nullable().describe('Share of terminal orders that completed; null when no terminal history'),
+  "averageRating": zod.number().nullable(),
+  "isNewSupplier": zod.boolean().describe('True when fewer than 5 completed orders'),
+  "hasTransactionHistory": zod.boolean().describe('False when supplier has zero completed terminal trades')
+}),
+  "onboarding": zod.object({
+  "hasProducts": zod.boolean(),
+  "hasCompletedOrder": zod.boolean()
+})
+})
 
 
 /**
@@ -154,6 +425,8 @@ export const GetUserResponse = zod.object({
   "category": zod.string().nullish(),
   "payoutMomoNumber": zod.string().nullish(),
   "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 })
 
@@ -168,8 +441,10 @@ export const GetSupplierStatsParams = zod.object({
 export const GetSupplierStatsResponse = zod.object({
   "totalOrders": zod.number(),
   "completedOrders": zod.number(),
-  "completionRate": zod.number(),
-  "averageRating": zod.number().nullable()
+  "completionRate": zod.number().nullable().describe('Share of terminal orders that completed; null when no terminal history'),
+  "averageRating": zod.number().nullable(),
+  "isNewSupplier": zod.boolean().describe('True when fewer than 5 completed orders'),
+  "hasTransactionHistory": zod.boolean().describe('False when supplier has zero completed terminal trades')
 })
 
 
@@ -201,7 +476,9 @@ export const ListUserRatingsResponse = zod.array(ListUserRatingsResponseItem)
  */
 export const ListProductsQueryParams = zod.object({
   "category": zod.coerce.string().optional(),
-  "supplierId": zod.coerce.number().optional()
+  "location": zod.coerce.string().optional().describe('Filter by supplier region\/town (substring match)'),
+  "search": zod.coerce.string().optional().describe('Match product name or supplier business name'),
+  "supplierId": zod.coerce.number().optional().describe('When set, returns all listings for that supplier including inactive')
 })
 
 export const ListProductsResponseItem = zod.object({
@@ -216,7 +493,13 @@ export const ListProductsResponseItem = zod.object({
   "photoUrl": zod.string().nullish(),
   "isActive": zod.boolean(),
   "createdAt": zod.coerce.date()
-})
+}).and(zod.object({
+  "supplierBusinessName": zod.string(),
+  "supplierLocation": zod.string(),
+  "supplierCompletedOrders": zod.number(),
+  "supplierAverageRating": zod.number().nullish(),
+  "supplierIsNew": zod.boolean()
+}))
 export const ListProductsResponse = zod.array(ListProductsResponseItem)
 
 
@@ -321,13 +604,25 @@ export const UpdateProductResponse = zod.object({
 
 
 /**
- * @summary Delete a product listing (owning supplier only)
+ * @summary Deactivate a product listing (owning supplier only; preserves order history)
  */
 export const DeleteProductParams = zod.object({
   "id": zod.coerce.number()
 })
 
-export const DeleteProductResponse = zod.void()
+export const DeleteProductResponse = zod.object({
+  "id": zod.number(),
+  "supplierId": zod.number(),
+  "name": zod.string(),
+  "category": zod.string(),
+  "unitPrice": zod.string(),
+  "moq": zod.number(),
+  "unit": zod.string(),
+  "stockQty": zod.number(),
+  "photoUrl": zod.string().nullish(),
+  "isActive": zod.boolean(),
+  "createdAt": zod.coerce.date()
+})
 
 
 /**
@@ -335,7 +630,7 @@ export const DeleteProductResponse = zod.void()
  */
 export const ListOrdersQueryParams = zod.object({
   "role": zod.enum(['buyer', 'supplier']).optional().describe('Filter to orders where the current user is this role'),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']).optional()
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']).optional()
 })
 
 export const ListOrdersResponseItem = zod.object({
@@ -346,10 +641,17 @@ export const ListOrdersResponseItem = zod.object({
   "quantity": zod.number(),
   "totalAmount": zod.string(),
   "platformFee": zod.string(),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
   "createdAt": zod.coerce.date(),
   "shippedAt": zod.coerce.date().nullish(),
-  "autoReleaseAt": zod.coerce.date().nullish()
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
 })
 export const ListOrdersResponse = zod.array(ListOrdersResponseItem)
 
@@ -360,9 +662,12 @@ export const ListOrdersResponse = zod.array(ListOrdersResponseItem)
 
 
 
+
 export const CreateOrderBody = zod.object({
   "productId": zod.number(),
-  "quantity": zod.number().min(1)
+  "quantity": zod.number().min(1),
+  "deliveryLocation": zod.string().min(1),
+  "preferredDeliveryDate": zod.coerce.date()
 })
 
 export const CreateOrderResponse = zod.object({
@@ -373,10 +678,17 @@ export const CreateOrderResponse = zod.object({
   "quantity": zod.number(),
   "totalAmount": zod.string(),
   "platformFee": zod.string(),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
   "createdAt": zod.coerce.date(),
   "shippedAt": zod.coerce.date().nullish(),
-  "autoReleaseAt": zod.coerce.date().nullish()
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
 })
 
 
@@ -395,10 +707,17 @@ export const GetOrderResponse = zod.object({
   "quantity": zod.number(),
   "totalAmount": zod.string(),
   "platformFee": zod.string(),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
   "createdAt": zod.coerce.date(),
   "shippedAt": zod.coerce.date().nullish(),
-  "autoReleaseAt": zod.coerce.date().nullish()
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
 }).and(zod.object({
   "product": zod.object({
   "id": zod.number(),
@@ -422,6 +741,8 @@ export const GetOrderResponse = zod.object({
   "category": zod.string().nullish(),
   "payoutMomoNumber": zod.string().nullish(),
   "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 }).optional(),
   "supplier": zod.object({
@@ -433,18 +754,22 @@ export const GetOrderResponse = zod.object({
   "category": zod.string().nullish(),
   "payoutMomoNumber": zod.string().nullish(),
   "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 }).optional(),
-  "dispute": zod.union([zod.object({
+  "disputes": zod.array(zod.object({
   "id": zod.number(),
   "orderId": zod.number(),
   "raisedBy": zod.number(),
   "reason": zod.string(),
   "status": zod.enum(['open', 'resolved']),
+  "category": zod.union([zod.enum(['quality', 'non_delivery', 'quantity', 'other']),zod.null()]).optional(),
+  "evidenceUrls": zod.array(zod.string()).nullish(),
   "resolution": zod.string().nullish(),
   "resolvedByAdminId": zod.number().nullish(),
   "createdAt": zod.coerce.date()
-}),zod.null()]).optional()
+})).optional()
 }))
 
 
@@ -463,10 +788,17 @@ export const AcceptOrderResponse = zod.object({
   "quantity": zod.number(),
   "totalAmount": zod.string(),
   "platformFee": zod.string(),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
   "createdAt": zod.coerce.date(),
   "shippedAt": zod.coerce.date().nullish(),
-  "autoReleaseAt": zod.coerce.date().nullish()
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
 })
 
 
@@ -477,6 +809,13 @@ export const RejectOrderParams = zod.object({
   "id": zod.coerce.number()
 })
 
+
+
+
+export const RejectOrderBody = zod.object({
+  "reason": zod.string().min(1).optional()
+})
+
 export const RejectOrderResponse = zod.object({
   "id": zod.number(),
   "buyerId": zod.number(),
@@ -485,10 +824,17 @@ export const RejectOrderResponse = zod.object({
   "quantity": zod.number(),
   "totalAmount": zod.string(),
   "platformFee": zod.string(),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
   "createdAt": zod.coerce.date(),
   "shippedAt": zod.coerce.date().nullish(),
-  "autoReleaseAt": zod.coerce.date().nullish()
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
 })
 
 
@@ -507,10 +853,17 @@ export const PayOrderResponse = zod.object({
   "quantity": zod.number(),
   "totalAmount": zod.string(),
   "platformFee": zod.string(),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
   "createdAt": zod.coerce.date(),
   "shippedAt": zod.coerce.date().nullish(),
-  "autoReleaseAt": zod.coerce.date().nullish()
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
 })
 
 
@@ -529,18 +882,29 @@ export const ShipOrderResponse = zod.object({
   "quantity": zod.number(),
   "totalAmount": zod.string(),
   "platformFee": zod.string(),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
   "createdAt": zod.coerce.date(),
   "shippedAt": zod.coerce.date().nullish(),
-  "autoReleaseAt": zod.coerce.date().nullish()
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
 })
 
 
 /**
- * @summary Buyer confirms receipt; triggers disbursement to supplier
+ * @summary Buyer confirms receipt; initiates disbursement (async — completes via webhook/polling)
  */
 export const ConfirmReceiptParams = zod.object({
   "id": zod.coerce.number()
+})
+
+export const ConfirmReceiptBody = zod.object({
+  "photoUrl": zod.string().optional().describe('Optional photo URL attached at receipt confirmation')
 })
 
 export const ConfirmReceiptResponse = zod.object({
@@ -551,10 +915,17 @@ export const ConfirmReceiptResponse = zod.object({
   "quantity": zod.number(),
   "totalAmount": zod.string(),
   "platformFee": zod.string(),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
   "createdAt": zod.coerce.date(),
   "shippedAt": zod.coerce.date().nullish(),
-  "autoReleaseAt": zod.coerce.date().nullish()
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
 })
 
 
@@ -569,7 +940,9 @@ export const RaiseDisputeParams = zod.object({
 
 
 export const RaiseDisputeBody = zod.object({
-  "reason": zod.string().min(1)
+  "reason": zod.string().min(1),
+  "category": zod.enum(['quality', 'non_delivery', 'quantity', 'other']).optional(),
+  "evidenceUrls": zod.array(zod.string()).optional()
 })
 
 export const RaiseDisputeResponse = zod.object({
@@ -578,8 +951,54 @@ export const RaiseDisputeResponse = zod.object({
   "raisedBy": zod.number(),
   "reason": zod.string(),
   "status": zod.enum(['open', 'resolved']),
+  "category": zod.union([zod.enum(['quality', 'non_delivery', 'quantity', 'other']),zod.null()]).optional(),
+  "evidenceUrls": zod.array(zod.string()).nullish(),
   "resolution": zod.string().nullish(),
   "resolvedByAdminId": zod.number().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Buyer requests refund after no shipment update (in_escrow, 5+ days since payment)
+ */
+export const RequestRefundParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RequestRefundResponse = zod.object({
+  "id": zod.number(),
+  "orderId": zod.number(),
+  "raisedBy": zod.number(),
+  "reason": zod.string(),
+  "status": zod.enum(['open', 'resolved']),
+  "category": zod.union([zod.enum(['quality', 'non_delivery', 'quantity', 'other']),zod.null()]).optional(),
+  "evidenceUrls": zod.array(zod.string()).nullish(),
+  "resolution": zod.string().nullish(),
+  "resolvedByAdminId": zod.number().nullish(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Supplier right-of-reply on an open dispute
+ */
+export const ReplyToDisputeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+
+
+
+export const ReplyToDisputeBody = zod.object({
+  "message": zod.string().min(1)
+})
+
+export const ReplyToDisputeResponse = zod.object({
+  "id": zod.number(),
+  "disputeId": zod.number(),
+  "authorId": zod.number(),
+  "message": zod.string(),
   "createdAt": zod.coerce.date()
 })
 
@@ -619,7 +1038,7 @@ export const CreateRatingResponse = zod.object({
  * @summary Mock Moolre Collections webhook — resolves payment_processing to in_escrow (or back to awaiting_payment on failure). Idempotent per moolreReference.
  */
 export const HandlePaymentWebhookBody = zod.object({
-  "orderId": zod.number(),
+  "orderId": zod.number().optional(),
   "moolreReference": zod.string(),
   "status": zod.enum(['succeeded', 'failed'])
 })
@@ -630,10 +1049,10 @@ export const HandlePaymentWebhookResponse = zod.object({
 
 
 /**
- * @summary Mock Moolre Bulk Disbursement webhook — resolves a payout attempt. Idempotent per moolreReference.
+ * @summary Mock Moolre Bulk Disbursement webhook — resolves payout_processing to completed (or payout_failed). Idempotent per moolreReference.
  */
 export const HandleDisbursementWebhookBody = zod.object({
-  "orderId": zod.number(),
+  "orderId": zod.number().optional(),
   "moolreReference": zod.string(),
   "status": zod.enum(['succeeded', 'failed'])
 })
@@ -647,7 +1066,7 @@ export const HandleDisbursementWebhookResponse = zod.object({
  * @summary Admin — list all orders, optionally filtered by status
  */
 export const ListAllOrdersQueryParams = zod.object({
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']).optional()
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']).optional()
 })
 
 export const ListAllOrdersResponseItem = zod.object({
@@ -658,10 +1077,17 @@ export const ListAllOrdersResponseItem = zod.object({
   "quantity": zod.number(),
   "totalAmount": zod.string(),
   "platformFee": zod.string(),
-  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
   "createdAt": zod.coerce.date(),
   "shippedAt": zod.coerce.date().nullish(),
-  "autoReleaseAt": zod.coerce.date().nullish()
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
 }).and(zod.object({
   "product": zod.object({
   "id": zod.number(),
@@ -685,6 +1111,8 @@ export const ListAllOrdersResponseItem = zod.object({
   "category": zod.string().nullish(),
   "payoutMomoNumber": zod.string().nullish(),
   "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 }).optional(),
   "supplier": zod.object({
@@ -696,18 +1124,22 @@ export const ListAllOrdersResponseItem = zod.object({
   "category": zod.string().nullish(),
   "payoutMomoNumber": zod.string().nullish(),
   "isAdmin": zod.boolean(),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "ghanaCardNumber": zod.string().nullish(),
   "createdAt": zod.coerce.date()
 }).optional(),
-  "dispute": zod.union([zod.object({
+  "disputes": zod.array(zod.object({
   "id": zod.number(),
   "orderId": zod.number(),
   "raisedBy": zod.number(),
   "reason": zod.string(),
   "status": zod.enum(['open', 'resolved']),
+  "category": zod.union([zod.enum(['quality', 'non_delivery', 'quantity', 'other']),zod.null()]).optional(),
+  "evidenceUrls": zod.array(zod.string()).nullish(),
   "resolution": zod.string().nullish(),
   "resolvedByAdminId": zod.number().nullish(),
   "createdAt": zod.coerce.date()
-}),zod.null()]).optional()
+})).optional()
 }))
 export const ListAllOrdersResponse = zod.array(ListAllOrdersResponseItem)
 
@@ -725,6 +1157,8 @@ export const ListDisputesResponseItem = zod.object({
   "raisedBy": zod.number(),
   "reason": zod.string(),
   "status": zod.enum(['open', 'resolved']),
+  "category": zod.union([zod.enum(['quality', 'non_delivery', 'quantity', 'other']),zod.null()]).optional(),
+  "evidenceUrls": zod.array(zod.string()).nullish(),
   "resolution": zod.string().nullish(),
   "resolvedByAdminId": zod.number().nullish(),
   "createdAt": zod.coerce.date()
@@ -743,8 +1177,10 @@ export const ResolveDisputeParams = zod.object({
 
 
 export const ResolveDisputeBody = zod.object({
-  "targetStatus": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'completed', 'disputed', 'expired', 'payout_failed']),
-  "resolution": zod.string().min(1)
+  "targetStatus": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
+  "resolution": zod.string().min(1),
+  "buyerAmount": zod.string().optional().describe('Optional GHS amount to refund to buyer (partial split)'),
+  "supplierAmount": zod.string().optional().describe('Optional GHS amount to release to supplier (partial split)')
 })
 
 export const ResolveDisputeResponse = zod.object({
@@ -753,9 +1189,271 @@ export const ResolveDisputeResponse = zod.object({
   "raisedBy": zod.number(),
   "reason": zod.string(),
   "status": zod.enum(['open', 'resolved']),
+  "category": zod.union([zod.enum(['quality', 'non_delivery', 'quantity', 'other']),zod.null()]).optional(),
+  "evidenceUrls": zod.array(zod.string()).nullish(),
   "resolution": zod.string().nullish(),
   "resolvedByAdminId": zod.number().nullish(),
   "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Admin — platform summary metrics
+ */
+export const GetAdminMetricsResponse = zod.object({
+  "totalVolumeGhs": zod.string(),
+  "totalPlatformFeesGhs": zod.string(),
+  "activeBuyers": zod.number(),
+  "activeSuppliers": zod.number(),
+  "totalOrders": zod.number(),
+  "completedOrders": zod.number(),
+  "completionRate": zod.number(),
+  "openDisputes": zod.number()
+})
+
+
+/**
+ * @summary Admin — manually release escrow funds to supplier
+ */
+export const AdminReleaseOrderFundsParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminReleaseOrderFundsBody = zod.object({
+  "notes": zod.string().optional()
+})
+
+export const AdminReleaseOrderFundsResponse = zod.object({
+  "id": zod.number(),
+  "buyerId": zod.number(),
+  "supplierId": zod.number(),
+  "productId": zod.number(),
+  "quantity": zod.number(),
+  "totalAmount": zod.string(),
+  "platformFee": zod.string(),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
+  "createdAt": zod.coerce.date(),
+  "shippedAt": zod.coerce.date().nullish(),
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
+})
+
+
+/**
+ * @summary Admin — refund buyer and close order
+ */
+export const AdminRefundOrderParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminRefundOrderBody = zod.object({
+  "notes": zod.string().optional()
+})
+
+export const AdminRefundOrderResponse = zod.object({
+  "id": zod.number(),
+  "buyerId": zod.number(),
+  "supplierId": zod.number(),
+  "productId": zod.number(),
+  "quantity": zod.number(),
+  "totalAmount": zod.string(),
+  "platformFee": zod.string(),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
+  "createdAt": zod.coerce.date(),
+  "shippedAt": zod.coerce.date().nullish(),
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
+})
+
+
+/**
+ * @summary Admin — retry a failed disbursement
+ */
+export const AdminRetryPayoutParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminRetryPayoutBody = zod.object({
+  "notes": zod.string().optional()
+})
+
+export const AdminRetryPayoutResponse = zod.object({
+  "id": zod.number(),
+  "buyerId": zod.number(),
+  "supplierId": zod.number(),
+  "productId": zod.number(),
+  "quantity": zod.number(),
+  "totalAmount": zod.string(),
+  "platformFee": zod.string(),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
+  "createdAt": zod.coerce.date(),
+  "shippedAt": zod.coerce.date().nullish(),
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
+})
+
+
+/**
+ * @summary Admin — manually expire a stuck order
+ */
+export const AdminExpireOrderParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AdminExpireOrderBody = zod.object({
+  "notes": zod.string().optional()
+})
+
+export const AdminExpireOrderResponse = zod.object({
+  "id": zod.number(),
+  "buyerId": zod.number(),
+  "supplierId": zod.number(),
+  "productId": zod.number(),
+  "quantity": zod.number(),
+  "totalAmount": zod.string(),
+  "platformFee": zod.string(),
+  "status": zod.enum(['pending_supplier_confirmation', 'awaiting_payment', 'payment_processing', 'in_escrow', 'shipped', 'payout_processing', 'completed', 'disputed', 'post_release_disputed', 'expired', 'rejected', 'payout_failed']),
+  "createdAt": zod.coerce.date(),
+  "shippedAt": zod.coerce.date().nullish(),
+  "autoReleaseAt": zod.coerce.date().nullish(),
+  "deliveryLocation": zod.string().nullish(),
+  "preferredDeliveryDate": zod.coerce.date().nullish(),
+  "rejectReason": zod.string().nullish(),
+  "expiresAt": zod.coerce.date().nullish(),
+  "autoReleaseReminderSent": zod.boolean().optional(),
+  "confirmPhotoUrl": zod.string().nullish(),
+  "productName": zod.string().optional().describe('Product display name (included when listing orders)')
+})
+
+
+/**
+ * @summary Upload a KYC document (Ghana Card front or back)
+ */
+export const UploadKycDocumentBody = zod.object({
+  "file": zod.instanceof(File)
+})
+
+export const UploadKycDocumentResponse = zod.object({
+  "url": zod.string().url()
+})
+
+
+/**
+ * @summary Submit Ghana Card details for verification
+ */
+export const SubmitKycBody = zod.object({
+  "ghanaCardNumber": zod.string().describe('Ghana Card number in format GHA-XXXXXXXXX-X'),
+  "docUrls": zod.object({
+  "ghana_card_front": zod.string().url(),
+  "ghana_card_back": zod.string().url()
+})
+})
+
+export const SubmitKycResponse = zod.object({
+  "submitted": zod.boolean()
+})
+
+
+/**
+ * @summary Get current user's KYC status
+ */
+export const GetKycStatusResponse = zod.object({
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "kycRejectionReason": zod.string().nullish(),
+  "ghanaCardNumber": zod.string().nullish()
+})
+
+
+/**
+ * @summary List all users with KYC information (admin only)
+ */
+export const GetAdminKycUsersQueryParams = zod.object({
+  "status": zod.enum(['none', 'pending', 'approved', 'rejected']).optional().describe('Filter by KYC status')
+})
+
+export const GetAdminKycUsersResponseItem = zod.object({
+  "id": zod.number(),
+  "phone": zod.string(),
+  "businessName": zod.string(),
+  "role": zod.enum(['buyer', 'supplier', 'both']),
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "kycSubmittedAt": zod.coerce.date().nullish(),
+  "kycReviewedAt": zod.coerce.date().nullish(),
+  "ghanaCardNumber": zod.string().nullish(),
+  "kycRejectionReason": zod.string().nullish(),
+  "documents": zod.array(zod.object({
+  "docType": zod.enum(['ghana_card_front', 'ghana_card_back']),
+  "storageUrl": zod.string()
+}))
+})
+export const GetAdminKycUsersResponse = zod.array(GetAdminKycUsersResponseItem)
+
+
+/**
+ * @summary List all pending KYC submissions (admin only)
+ */
+export const GetAdminKycQueueResponseItem = zod.object({
+  "id": zod.number(),
+  "phone": zod.string(),
+  "businessName": zod.string(),
+  "role": zod.enum(['buyer', 'supplier', 'both']),
+  "kycSubmittedAt": zod.coerce.date(),
+  "ghanaCardNumber": zod.string().nullish(),
+  "documents": zod.array(zod.object({
+  "docType": zod.enum(['ghana_card_front', 'ghana_card_back']),
+  "storageUrl": zod.string()
+}))
+})
+export const GetAdminKycQueueResponse = zod.array(GetAdminKycQueueResponseItem)
+
+
+/**
+ * @summary Approve a KYC submission (admin only)
+ */
+export const ApproveKycParams = zod.object({
+  "userId": zod.coerce.number()
+})
+
+export const ApproveKycResponse = zod.object({
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "kycRejectionReason": zod.string().nullish(),
+  "ghanaCardNumber": zod.string().nullish()
+})
+
+
+/**
+ * @summary Reject a KYC submission (admin only)
+ */
+export const RejectKycParams = zod.object({
+  "userId": zod.coerce.number()
+})
+
+export const RejectKycBody = zod.object({
+  "reason": zod.string()
+})
+
+export const RejectKycResponse = zod.object({
+  "kycStatus": zod.enum(['none', 'pending', 'approved', 'rejected']),
+  "kycRejectionReason": zod.string().nullish(),
+  "ghanaCardNumber": zod.string().nullish()
 })
 
 

@@ -7,6 +7,9 @@
  */
 
 export interface OtpRequestInput {
-  /** @minLength 6 */
+  /**
+     * Ghana mobile number (+233 or local 0… format)
+     * @minLength 9
+     */
   phone: string;
 }

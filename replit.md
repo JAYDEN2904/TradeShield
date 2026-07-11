@@ -24,14 +24,19 @@ A B2B escrow marketplace for Ghana connecting buyers (retailers/traders) and sup
 
 - `lib/db/src/schema/` — DB schema, one file per table: `users`, `otpCodes`, `products`, `orders`, `transactions`, `ratings`, `disputes`.
 - `artifacts/api-server/src/lib/orderStateMachine.ts` — pure module defining every legal order-status transition. All route/webhook code must go through `canTransition`/`applyTransition` here instead of writing `status` directly.
-- `artifacts/api-server/src/lib/paymentProvider.ts` — `PaymentProvider` adapter interface (`charge`, `disburse`) with a `MockPaymentProvider`. This is the single swap point for the real Moolre integration later.
+- `artifacts/api-server/src/lib/paymentOrchestration.ts` — initiates collection/disbursement with reference-first idempotency.
+- `artifacts/api-server/src/lib/webhookHandlers.ts` — idempotent webhook/polling outcome application.
+- `artifacts/api-server/src/lib/paymentReconciliation.ts` — polling fallback for stuck `payment_processing` / `payout_processing` orders.
 - `lib/api-spec/openapi.yaml` — API contract (to be filled in as endpoints are built).
 
 ## Architecture decisions
 
 - Originally specced as Next.js + Supabase; built instead on this workspace's native stack (React + Vite frontend, Express 5 API, Postgres + Drizzle) to match the platform's tooling — same data model and product behavior, different framework plumbing.
 - Order status lives only in `orders.status` (a Postgres enum) and is only ever changed via the state-machine module — never inferred from timestamps or other columns.
-- Payment integration (Moolre Collections/Disbursement) is fully behind the `PaymentProvider` interface; the MVP mock provider returns `pending` and a separate mock webhook route drives the actual status transition, mirroring how the real async webhook flow will work.
+- Payment integration (Moolre Collections/Disbursement) is fully behind the `PaymentProvider` interface; set `MOOLRE_API_KEY` + `MOOLRE_API_SECRET` to swap in `MoolrePaymentProvider`, otherwise `MockPaymentProvider` is used.
+- Collections and disbursements never finalize on the synchronous API response — only webhooks (`/api/webhooks/payments`, `/api/webhooks/disbursements`, plus `/api/webhooks/moolre/*` aliases) or the polling reconciliation job may move an order to `in_escrow` or `completed`.
+- Disbursement uses a `payout_processing` sub-state (parallel to `payment_processing`) between `shipped` and `completed`.
+- Platform references (`ORDER-{id}-PAY-{n}`, `ORDER-{id}-PAYOUT-{n}`) are written to `transactions` before the provider call.
 - OTP-based auth is mocked for the MVP via an `otp_codes` table (phone + code + expiry) rather than a real SMS provider — swappable later without changing the auth flow shape.
 - 72-hour delivery auto-confirmation must be enforced by a server-side scheduled job reading `orders.auto_release_at`, not a client-side timer.
 

@@ -21,4 +21,17 @@ export interface Order {
   shippedAt?: Date | null;
   /** @nullable */
   autoReleaseAt?: Date | null;
+  /** @nullable */
+  deliveryLocation?: string | null;
+  /** @nullable */
+  preferredDeliveryDate?: Date | null;
+  /** @nullable */
+  rejectReason?: string | null;
+  /** @nullable */
+  expiresAt?: Date | null;
+  autoReleaseReminderSent?: boolean;
+  /** @nullable */
+  confirmPhotoUrl?: string | null;
+  /** Product display name (included when listing orders) */
+  productName?: string;
 }

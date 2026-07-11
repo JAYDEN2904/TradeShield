@@ -1,6 +1,9 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startAutoReleaseJob } from "./lib/autoRelease";
+import { startPaymentReconciliationJob } from "./lib/paymentReconciliation";
+import { startPendingExpiryJob } from "./lib/pendingExpiry";
+import { startAutoReleaseReminderJob } from "./lib/autoReleaseReminder";
 
 const rawPort = process.env["PORT"];
 
@@ -24,4 +27,7 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   startAutoReleaseJob();
+  startPaymentReconciliationJob();
+  startPendingExpiryJob();
+  startAutoReleaseReminderJob();
 });

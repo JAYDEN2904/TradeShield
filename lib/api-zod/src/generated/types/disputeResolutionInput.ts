@@ -11,4 +11,8 @@ export interface DisputeResolutionInput {
   targetStatus: OrderStatus;
   /** @minLength 1 */
   resolution: string;
+  /** Optional GHS amount to refund to buyer (partial split) */
+  buyerAmount?: string;
+  /** Optional GHS amount to release to supplier (partial split) */
+  supplierAmount?: string;
 }

@@ -6,6 +6,8 @@ import productsRouter from "./products";
 import ordersRouter from "./orders";
 import webhooksRouter from "./webhooks";
 import adminRouter from "./admin";
+import kycRouter from "./kyc";
+import uploadsRouter from "./uploads";
 
 const router: IRouter = Router();
 
@@ -16,5 +18,7 @@ router.use(productsRouter);
 router.use(ordersRouter);
 router.use(webhooksRouter);
 router.use(adminRouter);
+router.use(kycRouter);
+router.use(uploadsRouter);
 
 export default router;

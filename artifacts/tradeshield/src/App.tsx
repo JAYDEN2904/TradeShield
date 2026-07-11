@@ -7,16 +7,18 @@ import { Layout } from "@/components/layout";
 import { ProtectedRoute } from "@/components/protected-route";
 
 import NotFound from "@/pages/not-found";
+import ForgotPassword from "@/pages/forgot-password";
 import Login from "@/pages/login";
 import Register from "@/pages/register";
 import Home from "@/pages/home";
 import ProductDetail from "@/pages/product-detail";
 import Orders from "@/pages/orders";
 import OrderDetail from "@/pages/order-detail";
-import Sell from "@/pages/sell";
+import Dashboard from "@/pages/dashboard";
 import SupplierProfile from "@/pages/supplier-profile";
 import Settings from "@/pages/settings";
 import Admin from "@/pages/admin";
+import Verify from "@/pages/verify";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -31,10 +33,14 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
+      <Route path="/forgot-password" component={ForgotPassword} />
       <Route path="/register" component={Register} />
       
+      {/* The "/" route renders without Layout — LandingView manages its own
+          marketing nav and footer; CatalogView (logged-in buyers) imports
+          Layout directly so it still gets the app header/footer. */}
       <Route path="/">
-        <Layout><Home /></Layout>
+        <Home />
       </Route>
       
       <Route path="/products/:id">
@@ -61,10 +67,19 @@ function Router() {
         </Layout>
       </Route>
 
+      <Route path="/dashboard">
+        <Layout>
+          <ProtectedRoute requireRole="supplier">
+            <Dashboard />
+          </ProtectedRoute>
+        </Layout>
+      </Route>
+
+      {/* Legacy redirect: /sell → /dashboard */}
       <Route path="/sell">
         <Layout>
           <ProtectedRoute requireRole="supplier">
-            <Sell />
+            <Dashboard />
           </ProtectedRoute>
         </Layout>
       </Route>
@@ -81,6 +96,14 @@ function Router() {
         <Layout>
           <ProtectedRoute requireAdmin={true}>
             <Admin />
+          </ProtectedRoute>
+        </Layout>
+      </Route>
+
+      <Route path="/verify">
+        <Layout>
+          <ProtectedRoute>
+            <Verify />
           </ProtectedRoute>
         </Layout>
       </Route>

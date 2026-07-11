@@ -9,7 +9,15 @@
 export interface SupplierStats {
   totalOrders: number;
   completedOrders: number;
-  completionRate: number;
+  /**
+     * Share of terminal orders that completed; null when no terminal history
+     * @nullable
+     */
+  completionRate: number | null;
   /** @nullable */
   averageRating: number | null;
+  /** True when fewer than 5 completed orders */
+  isNewSupplier: boolean;
+  /** False when supplier has zero completed terminal trades */
+  hasTransactionHistory: boolean;
 }

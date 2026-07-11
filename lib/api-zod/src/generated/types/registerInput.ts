@@ -9,6 +9,8 @@ import type { UserRole } from './userRole';
 
 export interface RegisterInput {
   phone: string;
+  /** @minLength 8 */
+  password: string;
   /** @minLength 1 */
   businessName: string;
   /** @minLength 1 */

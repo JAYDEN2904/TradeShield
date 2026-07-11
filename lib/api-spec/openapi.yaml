@@ -26,6 +26,10 @@ tags:
     description: Post-order ratings
   - name: admin
     description: Admin views across all orders/disputes
+  - name: kyc
+    description: Identity verification (Ghana Card upload and admin review)
+  - name: uploads
+    description: File upload endpoints
 paths:
   /healthz:
     get:
@@ -41,11 +45,86 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Log in with phone number and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Session started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/forgot-password:
+    post:
+      operationId: forgotPassword
+      tags: [auth]
+      summary: Request an OTP to reset password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ForgotPasswordInput"
+      responses:
+        "200":
+          description: OTP sent if account exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OtpRequestResult"
+        "429":
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/reset-password:
+    post:
+      operationId: resetPassword
+      tags: [auth]
+      summary: Reset password using OTP verification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResetPasswordInput"
+      responses:
+        "200":
+          description: Password updated and session started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "400":
+          description: Invalid or expired code
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /auth/request-otp:
     post:
       operationId: requestOtp
       tags: [auth]
-      summary: Request a mock OTP code for a phone number
+      summary: Request an OTP code for registration
       requestBody:
         required: true
         content:
@@ -54,17 +133,29 @@ paths:
               $ref: "#/components/schemas/OtpRequestInput"
       responses:
         "200":
-          description: OTP generated (mocked — code is echoed back for MVP demo purposes)
+          description: OTP generated
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/OtpRequestResult"
+        "400":
+          description: Invalid phone or account already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Rate limited — wait before resending
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /auth/verify-otp:
     post:
       operationId: verifyOtp
       tags: [auth]
-      summary: Verify an OTP code. Logs in if the phone already has an account.
+      summary: Verify registration OTP before completing signup
       requestBody:
         required: true
         content:
@@ -161,6 +252,33 @@ paths:
         "204":
           description: Logged out
 
+  /users/me/supplier-dashboard:
+    get:
+      operationId: getSupplierDashboard
+      tags: [users]
+      summary: Aggregated supplier dashboard data (auth required, supplier/both role only)
+      parameters:
+        - name: earningsPeriod
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [week, month, all]
+            default: month
+      responses:
+        "200":
+          description: Supplier dashboard payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SupplierDashboard"
+        "403":
+          description: Forbidden (buyer-only accounts)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /users/{id}:
     get:
       operationId: getUser
@@ -225,20 +343,33 @@ paths:
           required: false
           schema:
             type: string
+        - name: location
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter by supplier region/town (substring match)
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Match product name or supplier business name
         - name: supplierId
           in: query
           required: false
           schema:
             type: integer
+          description: When set, returns all listings for that supplier including inactive
       responses:
         "200":
-          description: List of active products
+          description: List of catalog products
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Product"
+                  $ref: "#/components/schemas/CatalogProduct"
     post:
       operationId: createProduct
       tags: [products]
@@ -317,12 +448,16 @@ paths:
     delete:
       operationId: deleteProduct
       tags: [products]
-      summary: Delete a product listing (owning supplier only)
+      summary: Deactivate a product listing (owning supplier only; preserves order history)
       parameters:
         - $ref: "#/components/parameters/ProductId"
       responses:
-        "204":
-          description: Deleted
+        "200":
+          description: Product deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
         "403":
           description: Not the owning supplier
           content:
@@ -436,6 +571,12 @@ paths:
       summary: Supplier rejects the order
       parameters:
         - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectOrderInput"
       responses:
         "200":
           description: Order moved to expired
@@ -496,12 +637,18 @@ paths:
     post:
       operationId: confirmReceipt
       tags: [orders]
-      summary: Buyer confirms receipt; triggers disbursement to supplier
+      summary: Buyer confirms receipt; initiates disbursement (async — completes via webhook/polling)
       parameters:
         - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmReceiptInput"
       responses:
         "200":
-          description: Order moved to completed (or payout_failed if disbursement fails)
+          description: Order moved to payout_processing; completed when disbursement webhook confirms
           content:
             application/json:
               schema:
@@ -535,6 +682,54 @@ paths:
                 $ref: "#/components/schemas/Dispute"
         "409":
           description: Invalid transition
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}/request-refund:
+    post:
+      operationId: requestRefund
+      tags: [orders]
+      summary: Buyer requests refund after no shipment update (in_escrow, 5+ days since payment)
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "201":
+          description: Refund request created as dispute; order moved to disputed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispute"
+        "409":
+          description: Invalid state or too early
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /orders/{id}/dispute-reply:
+    post:
+      operationId: replyToDispute
+      tags: [disputes]
+      summary: Supplier right-of-reply on an open dispute
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DisputeReplyInput"
+      responses:
+        "201":
+          description: Reply recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DisputeReply"
+        "409":
+          description: No open dispute or not supplier
           content:
             application/json:
               schema:
@@ -590,7 +785,7 @@ paths:
     post:
       operationId: handleDisbursementWebhook
       tags: [webhooks]
-      summary: Mock Moolre Bulk Disbursement webhook — resolves a payout attempt. Idempotent per moolreReference.
+      summary: Mock Moolre Bulk Disbursement webhook — resolves payout_processing to completed (or payout_failed). Idempotent per moolreReference.
       requestBody:
         required: true
         content:
@@ -697,6 +892,372 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /admin/metrics:
+    get:
+      operationId: getAdminMetrics
+      tags: [admin]
+      summary: Admin — platform summary metrics
+      responses:
+        "200":
+          description: Summary metrics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminMetrics"
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/orders/{id}/release:
+    post:
+      operationId: adminReleaseOrderFunds
+      tags: [admin]
+      summary: Admin — manually release escrow funds to supplier
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminActionInput"
+      responses:
+        "200":
+          description: Payout initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Invalid order state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/orders/{id}/refund:
+    post:
+      operationId: adminRefundOrder
+      tags: [admin]
+      summary: Admin — refund buyer and close order
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminActionInput"
+      responses:
+        "200":
+          description: Refund initiated, order expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Invalid order state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/orders/{id}/retry-payout:
+    post:
+      operationId: adminRetryPayout
+      tags: [admin]
+      summary: Admin — retry a failed disbursement
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminActionInput"
+      responses:
+        "200":
+          description: Payout retry initiated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Invalid order state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/orders/{id}/expire:
+    post:
+      operationId: adminExpireOrder
+      tags: [admin]
+      summary: Admin — manually expire a stuck order
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdminActionInput"
+      responses:
+        "200":
+          description: Order expired
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "403":
+          description: Not an admin
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Invalid order state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /uploads/kyc-document:
+    post:
+      operationId: uploadKycDocument
+      tags: [uploads]
+      summary: Upload a KYC document (Ghana Card front or back)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Upload successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadKycDocumentResponse"
+        "400":
+          description: Invalid file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /kyc/submit:
+    post:
+      operationId: submitKyc
+      tags: [kyc]
+      summary: Submit Ghana Card details for verification
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KycSubmitInput"
+      responses:
+        "200":
+          description: Submission received, now pending admin review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KycSubmitResponse"
+        "400":
+          description: Validation error or already submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /kyc/status:
+    get:
+      operationId: getKycStatus
+      tags: [kyc]
+      summary: Get current user's KYC status
+      responses:
+        "200":
+          description: KYC status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KycStatusResponse"
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/kyc/users:
+    get:
+      operationId: getAdminKycUsers
+      tags: [kyc]
+      summary: List all users with KYC information (admin only)
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/KycStatus"
+          description: Filter by KYC status
+      responses:
+        "200":
+          description: All users with KYC records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminKycUserItem"
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/kyc/queue:
+    get:
+      operationId: getAdminKycQueue
+      tags: [kyc]
+      summary: List all pending KYC submissions (admin only)
+      responses:
+        "200":
+          description: Pending KYC queue
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminKycQueueItem"
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/kyc/{userId}/approve:
+    patch:
+      operationId: approveKyc
+      tags: [kyc]
+      summary: Approve a KYC submission (admin only)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User KYC approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KycStatusResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /admin/kyc/{userId}/reject:
+    patch:
+      operationId: rejectKyc
+      tags: [kyc]
+      summary: Reject a KYC submission (admin only)
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/KycRejectInput"
+      responses:
+        "200":
+          description: User KYC rejected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/KycStatusResponse"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Admin access required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
 components:
   parameters:
     UserId:
@@ -741,7 +1302,7 @@ components:
     User:
       type: object
       required:
-        [id, phone, role, businessName, location, isAdmin, createdAt]
+        [id, phone, role, businessName, location, isAdmin, kycStatus, createdAt]
       properties:
         id:
           type: integer
@@ -759,6 +1320,10 @@ components:
           type: ["string", "null"]
         isAdmin:
           type: boolean
+        kycStatus:
+          $ref: "#/components/schemas/KycStatus"
+        ghanaCardNumber:
+          type: ["string", "null"]
         createdAt:
           type: string
           format: date-time
@@ -781,16 +1346,31 @@ components:
 
     SupplierStats:
       type: object
-      required: [totalOrders, completedOrders, completionRate, averageRating]
+      required:
+        [
+          totalOrders,
+          completedOrders,
+          completionRate,
+          averageRating,
+          isNewSupplier,
+          hasTransactionHistory,
+        ]
       properties:
         totalOrders:
           type: integer
         completedOrders:
           type: integer
         completionRate:
-          type: number
+          type: ["number", "null"]
+          description: Share of terminal orders that completed; null when no terminal history
         averageRating:
           type: ["number", "null"]
+        isNewSupplier:
+          type: boolean
+          description: True when fewer than 5 completed orders
+        hasTransactionHistory:
+          type: boolean
+          description: False when supplier has zero completed terminal trades
 
     OtpRequestInput:
       type: object
@@ -798,7 +1378,8 @@ components:
       properties:
         phone:
           type: string
-          minLength: 6
+          minLength: 9
+          description: Ghana mobile number (+233 or local 0… format)
 
     OtpRequestResult:
       type: object
@@ -806,9 +1387,44 @@ components:
       properties:
         message:
           type: string
-        # Mock-only: real SMS provider would not echo the code back.
         debugCode:
           type: string
+        retryAfterSeconds:
+          type: integer
+          description: Seconds until another OTP can be requested
+
+    LoginInput:
+      type: object
+      required: [phone, password]
+      properties:
+        phone:
+          type: string
+          minLength: 9
+        password:
+          type: string
+          minLength: 8
+
+    ForgotPasswordInput:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+          minLength: 9
+
+    ResetPasswordInput:
+      type: object
+      required: [phone, code, password]
+      properties:
+        phone:
+          type: string
+        code:
+          type: string
+          minLength: 6
+          maxLength: 6
+        password:
+          type: string
+          minLength: 8
 
     OtpVerifyInput:
       type: object
@@ -834,10 +1450,13 @@ components:
 
     RegisterInput:
       type: object
-      required: [phone, businessName, location, role]
+      required: [phone, password, businessName, location, role]
       properties:
         phone:
           type: string
+        password:
+          type: string
+          minLength: 8
         businessName:
           type: string
           minLength: 1
@@ -890,6 +1509,24 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    CatalogProduct:
+      allOf:
+        - $ref: "#/components/schemas/Product"
+        - type: object
+          required:
+            [supplierBusinessName, supplierLocation, supplierCompletedOrders, supplierIsNew]
+          properties:
+            supplierBusinessName:
+              type: string
+            supplierLocation:
+              type: string
+            supplierCompletedOrders:
+              type: integer
+            supplierAverageRating:
+              type: ["number", "null"]
+            supplierIsNew:
+              type: boolean
 
     ProductInput:
       type: object
@@ -950,9 +1587,12 @@ components:
         - payment_processing
         - in_escrow
         - shipped
+        - payout_processing
         - completed
         - disputed
+        - post_release_disputed
         - expired
+        - rejected
         - payout_failed
 
     Order:
@@ -995,6 +1635,23 @@ components:
         autoReleaseAt:
           type: ["string", "null"]
           format: date-time
+        deliveryLocation:
+          type: ["string", "null"]
+        preferredDeliveryDate:
+          type: ["string", "null"]
+          format: date-time
+        rejectReason:
+          type: ["string", "null"]
+        expiresAt:
+          type: ["string", "null"]
+          format: date-time
+        autoReleaseReminderSent:
+          type: boolean
+        confirmPhotoUrl:
+          type: ["string", "null"]
+        productName:
+          type: string
+          description: Product display name (included when listing orders)
 
     OrderDetail:
       allOf:
@@ -1007,20 +1664,70 @@ components:
               $ref: "#/components/schemas/User"
             supplier:
               $ref: "#/components/schemas/User"
-            dispute:
-              oneOf:
-                - $ref: "#/components/schemas/Dispute"
-                - type: "null"
+            disputes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Dispute"
 
     OrderInput:
       type: object
-      required: [productId, quantity]
+      required: [productId, quantity, deliveryLocation, preferredDeliveryDate]
       properties:
         productId:
           type: integer
         quantity:
           type: integer
           minimum: 1
+        deliveryLocation:
+          type: string
+          minLength: 1
+        preferredDeliveryDate:
+          type: string
+          format: date
+
+    RejectOrderInput:
+      type: object
+      properties:
+        reason:
+          type: string
+          minLength: 1
+
+    AdminMetrics:
+      type: object
+      required:
+        [
+          totalVolumeGhs,
+          totalPlatformFeesGhs,
+          activeBuyers,
+          activeSuppliers,
+          totalOrders,
+          completedOrders,
+          completionRate,
+          openDisputes,
+        ]
+      properties:
+        totalVolumeGhs:
+          type: string
+        totalPlatformFeesGhs:
+          type: string
+        activeBuyers:
+          type: integer
+        activeSuppliers:
+          type: integer
+        totalOrders:
+          type: integer
+        completedOrders:
+          type: integer
+        completionRate:
+          type: number
+        openDisputes:
+          type: integer
+
+    AdminActionInput:
+      type: object
+      properties:
+        notes:
+          type: string
 
     DisputeStatus:
       type: string
@@ -1040,6 +1747,14 @@ components:
           type: string
         status:
           $ref: "#/components/schemas/DisputeStatus"
+        category:
+          oneOf:
+            - $ref: "#/components/schemas/DisputeCategory"
+            - type: "null"
+        evidenceUrls:
+          type: ["array", "null"]
+          items:
+            type: string
         resolution:
           type: ["string", "null"]
         resolvedByAdminId:
@@ -1048,6 +1763,10 @@ components:
           type: string
           format: date-time
 
+    DisputeCategory:
+      type: string
+      enum: [quality, non_delivery, quantity, other]
+
     DisputeInput:
       type: object
       required: [reason]
@@ -1055,6 +1774,36 @@ components:
         reason:
           type: string
           minLength: 1
+        category:
+          $ref: "#/components/schemas/DisputeCategory"
+        evidenceUrls:
+          type: array
+          items:
+            type: string
+
+    DisputeReplyInput:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          minLength: 1
+
+    DisputeReply:
+      type: object
+      required: [id, disputeId, authorId, message, createdAt]
+      properties:
+        id:
+          type: integer
+        disputeId:
+          type: integer
+        authorId:
+          type: integer
+        message:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
 
     DisputeResolutionInput:
       type: object
@@ -1065,6 +1814,12 @@ components:
         resolution:
           type: string
           minLength: 1
+        buyerAmount:
+          type: string
+          description: Optional GHS amount to refund to buyer (partial split)
+        supplierAmount:
+          type: string
+          description: Optional GHS amount to release to supplier (partial split)
 
     Rating:
       type: object
@@ -1101,7 +1856,7 @@ components:
 
     PaymentWebhookInput:
       type: object
-      required: [orderId, moolreReference, status]
+      required: [moolreReference, status]
       properties:
         orderId:
           type: integer
@@ -1113,7 +1868,7 @@ components:
 
     DisbursementWebhookInput:
       type: object
-      required: [orderId, moolreReference, status]
+      required: [moolreReference, status]
       properties:
         orderId:
           type: integer
@@ -1123,9 +1878,200 @@ components:
           type: string
           enum: [succeeded, failed]
 
+    ConfirmReceiptInput:
+      type: object
+      properties:
+        photoUrl:
+          type: string
+          description: Optional photo URL attached at receipt confirmation
+
+    EarningsPeriod:
+      type: string
+      enum: [week, month, all]
+
+    SupplierDashboardEarnings:
+      type: object
+      required: [period, earnedGhs, inEscrowGhs, pendingReleaseGhs]
+      properties:
+        period:
+          $ref: "#/components/schemas/EarningsPeriod"
+        earnedGhs:
+          type: string
+          description: Net payout (totalAmount - platformFee) for completed orders in the selected period
+        inEscrowGhs:
+          type: string
+          description: Sum of totalAmount for in_escrow and shipped orders (funds are secured)
+        pendingReleaseGhs:
+          type: string
+          description: Sum of totalAmount for payout_processing orders
+
+    SupplierDashboardCatalog:
+      type: object
+      required: [activeCount, inactiveCount, outOfStockCount, lowStockCount]
+      properties:
+        activeCount:
+          type: integer
+        inactiveCount:
+          type: integer
+        outOfStockCount:
+          type: integer
+          description: Active products with stockQty === 0
+        lowStockCount:
+          type: integer
+          description: Active products where 0 < stockQty < moq
+
+    SupplierDashboardOnboarding:
+      type: object
+      required: [hasProducts, hasCompletedOrder]
+      properties:
+        hasProducts:
+          type: boolean
+        hasCompletedOrder:
+          type: boolean
+
+    SupplierDashboard:
+      type: object
+      required: [earnings, needsAction, recentOrders, catalog, trust, onboarding]
+      properties:
+        earnings:
+          $ref: "#/components/schemas/SupplierDashboardEarnings"
+        needsAction:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderDetail"
+        recentOrders:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderDetail"
+        catalog:
+          $ref: "#/components/schemas/SupplierDashboardCatalog"
+        trust:
+          $ref: "#/components/schemas/SupplierStats"
+        onboarding:
+          $ref: "#/components/schemas/SupplierDashboardOnboarding"
+
     WebhookAck:
       type: object
       required: [received]
       properties:
         received:
           type: boolean
+
+    KycStatus:
+      type: string
+      enum: [none, pending, approved, rejected]
+
+    KycDocType:
+      type: string
+      enum: [ghana_card_front, ghana_card_back]
+
+    KycDocument:
+      type: object
+      required: [docType, storageUrl]
+      properties:
+        docType:
+          $ref: "#/components/schemas/KycDocType"
+        storageUrl:
+          type: string
+
+    KycSubmitInput:
+      type: object
+      required: [ghanaCardNumber, docUrls]
+      properties:
+        ghanaCardNumber:
+          type: string
+          description: Ghana Card number in format GHA-XXXXXXXXX-X
+        docUrls:
+          type: object
+          required: [ghana_card_front, ghana_card_back]
+          properties:
+            ghana_card_front:
+              type: string
+              format: uri
+            ghana_card_back:
+              type: string
+              format: uri
+
+    KycSubmitResponse:
+      type: object
+      required: [submitted]
+      properties:
+        submitted:
+          type: boolean
+
+    KycStatusResponse:
+      type: object
+      required: [kycStatus]
+      properties:
+        kycStatus:
+          $ref: "#/components/schemas/KycStatus"
+        kycRejectionReason:
+          type: ["string", "null"]
+        ghanaCardNumber:
+          type: ["string", "null"]
+
+    KycRejectInput:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+
+    AdminKycQueueItem:
+      type: object
+      required: [id, phone, businessName, role, kycSubmittedAt, documents]
+      properties:
+        id:
+          type: integer
+        phone:
+          type: string
+        businessName:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+        kycSubmittedAt:
+          type: string
+          format: date-time
+        ghanaCardNumber:
+          type: ["string", "null"]
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/KycDocument"
+
+    AdminKycUserItem:
+      type: object
+      required: [id, phone, businessName, role, kycStatus, documents]
+      properties:
+        id:
+          type: integer
+        phone:
+          type: string
+        businessName:
+          type: string
+        role:
+          $ref: "#/components/schemas/UserRole"
+        kycStatus:
+          $ref: "#/components/schemas/KycStatus"
+        kycSubmittedAt:
+          type: ["string", "null"]
+          format: date-time
+        kycReviewedAt:
+          type: ["string", "null"]
+          format: date-time
+        ghanaCardNumber:
+          type: ["string", "null"]
+        kycRejectionReason:
+          type: ["string", "null"]
+        documents:
+          type: array
+          items:
+            $ref: "#/components/schemas/KycDocument"
+
+    UploadKycDocumentResponse:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri

@@ -3,14 +3,25 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) ;; *) echo \"Use pnpm instead\" >&2; exit 1 ;; esac'",
+    "preinstall": "sh -c 'rm -f package-lock.json yarn.lock; case \"$npm_config_user_agent\" in pnpm/*) exit 0 ;; esac; case \"$npm_execpath\" in *pnpm*) exit 0 ;; esac; echo \"Use pnpm instead\" >&2; exit 1'",
+    "dev": "concurrently -n api,web -c blue,green \"pnpm dev:api\" \"pnpm dev:web\"",
+    "dev:web": "pnpm --filter @workspace/tradeshield run dev",
+    "dev:api": "PORT=8080 SESSION_SECRET=dev-secret-change-me DATABASE_URL=postgresql://postgres:postgres@localhost:5433/tradeshield pnpm --filter @workspace/api-server run dev",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:push": "DATABASE_URL=postgresql://postgres:postgres@localhost:5433/tradeshield pnpm --filter @workspace/db run push",
+    "db:kyc": "psql postgresql://postgres:postgres@localhost:5433/tradeshield -f lib/db/drizzle/apply_kyc_only.sql",
+    "db:seed": "DATABASE_URL=postgresql://postgres:postgres@localhost:5433/tradeshield pnpm --filter @workspace/scripts run seed:tradeshield",
+    "setup": "pnpm db:up && sleep 3 && pnpm db:push && pnpm db:seed",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck"
   },
   "private": true,
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "prettier": "^3.8.4",
     "typescript": "~5.9.3"
-  }
+  },
+  "packageManager": "pnpm@11.2.2+sha512.36e6621fad506178936455e70247b8808ef4ec25797a9f437a93281a020484e2607f6a469a22e982987c3dbb8866e3071514ab10a4a1749e06edcd1ec118436f"
 }

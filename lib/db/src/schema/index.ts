@@ -5,3 +5,6 @@ export * from "./orders";
 export * from "./transactions";
 export * from "./ratings";
 export * from "./disputes";
+export * from "./adminActions";
+export * from "./smsLogs";
+export * from "./kycDocuments";

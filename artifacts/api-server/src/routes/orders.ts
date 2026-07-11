@@ -6,6 +6,7 @@ import {
   productsTable,
   usersTable,
   disputesTable,
+  disputeRepliesTable,
   ratingsTable,
   transactionsTable,
   type Order,
@@ -19,23 +20,43 @@ import {
   GetOrderResponse,
   AcceptOrderParams,
   RejectOrderParams,
+  RejectOrderBody,
   PayOrderParams,
   ShipOrderParams,
   ConfirmReceiptParams,
+  ConfirmReceiptBody,
   RaiseDisputeParams,
   RaiseDisputeBody,
+  RequestRefundParams,
+  ReplyToDisputeParams,
+  ReplyToDisputeBody,
   CreateRatingParams,
   CreateRatingBody,
   CreateRatingResponse,
 } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { applyTransition, InvalidOrderTransitionError } from "../lib/orderStateMachine";
-import { paymentProvider } from "../lib/paymentProvider";
+import {
+  initiateOrderCollection,
+  initiateOrderPayout,
+  PaymentInProgressError,
+} from "../lib/paymentOrchestration";
+import {
+  fireAndForget,
+  notifyDisputeOpened,
+  notifyOrderAccepted,
+  notifyOrderCreated,
+  notifyOrderRejected,
+  notifyOrderShipped,
+} from "../lib/orderNotifications";
 
 const router: IRouter = Router();
 
 const SHIP_WINDOW_MS = 72 * 60 * 60 * 1000;
+const PENDING_EXPIRY_MS = 24 * 60 * 60 * 1000;
 const PLATFORM_FEE_RATE = 0.02;
+const REFUND_REQUEST_DELAY_MS = 5 * 24 * 60 * 60 * 1000;
+const POST_RELEASE_DISPUTE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function loadOrderDetail(order: Order) {
   const [product] = await db
@@ -50,7 +71,7 @@ async function loadOrderDetail(order: Order) {
     .select()
     .from(usersTable)
     .where(eq(usersTable.id, order.supplierId));
-  const [dispute] = await db
+  const disputes = await db
     .select()
     .from(disputesTable)
     .where(eq(disputesTable.orderId, order.id))
@@ -61,7 +82,7 @@ async function loadOrderDetail(order: Order) {
     product,
     buyer,
     supplier,
-    dispute: dispute ?? null,
+    disputes,
   };
 }
 
@@ -94,8 +115,28 @@ router.get("/orders", requireAuth, async (req, res): Promise<void> => {
   }
 
   const orders = await db
-    .select()
+    .select({
+      id: ordersTable.id,
+      buyerId: ordersTable.buyerId,
+      supplierId: ordersTable.supplierId,
+      productId: ordersTable.productId,
+      quantity: ordersTable.quantity,
+      totalAmount: ordersTable.totalAmount,
+      platformFee: ordersTable.platformFee,
+      status: ordersTable.status,
+      createdAt: ordersTable.createdAt,
+      shippedAt: ordersTable.shippedAt,
+      autoReleaseAt: ordersTable.autoReleaseAt,
+      deliveryLocation: ordersTable.deliveryLocation,
+      preferredDeliveryDate: ordersTable.preferredDeliveryDate,
+      rejectReason: ordersTable.rejectReason,
+      expiresAt: ordersTable.expiresAt,
+      autoReleaseReminderSent: ordersTable.autoReleaseReminderSent,
+      confirmPhotoUrl: ordersTable.confirmPhotoUrl,
+      productName: productsTable.name,
+    })
     .from(ordersTable)
+    .innerJoin(productsTable, eq(ordersTable.productId, productsTable.id))
     .where(and(...conditions))
     .orderBy(ordersTable.createdAt);
 
@@ -137,8 +178,41 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
   }
 
   const unitPrice = Number(product.unitPrice);
-  const totalAmount = (unitPrice * parsed.data.quantity).toFixed(2);
-  const platformFee = (unitPrice * parsed.data.quantity * PLATFORM_FEE_RATE).toFixed(2);
+  const orderTotal = unitPrice * parsed.data.quantity;
+  const totalAmount = orderTotal.toFixed(2);
+  const platformFee = (orderTotal * PLATFORM_FEE_RATE).toFixed(2);
+
+  // Orders above GHS 10,000 require both buyer and supplier to be verified
+  const HIGH_VALUE_THRESHOLD = 10000;
+  if (orderTotal > HIGH_VALUE_THRESHOLD) {
+    const buyer = req.currentUser!;
+    if (buyer.kycStatus !== "approved") {
+      res.status(403).json({
+        error:
+          "Orders above GHS 10,000 require both buyer and supplier to be verified. Complete verification in your account settings.",
+      });
+      return;
+    }
+
+    const [supplier] = await db
+      .select({ kycStatus: usersTable.kycStatus })
+      .from(usersTable)
+      .where(eq(usersTable.id, product.supplierId));
+
+    if (!supplier || supplier.kycStatus !== "approved") {
+      res.status(403).json({
+        error:
+          "Orders above GHS 10,000 require both buyer and supplier to be verified. This supplier has not yet completed verification.",
+      });
+      return;
+    }
+  }
+  const preferredDeliveryDate = new Date(parsed.data.preferredDeliveryDate);
+
+  if (Number.isNaN(preferredDeliveryDate.getTime())) {
+    res.status(400).json({ error: "Invalid preferred delivery date" });
+    return;
+  }
 
   const [order] = await db
     .insert(ordersTable)
@@ -150,6 +224,9 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
       totalAmount,
       platformFee,
       status: "pending_supplier_confirmation",
+      deliveryLocation: parsed.data.deliveryLocation,
+      preferredDeliveryDate,
+      expiresAt: new Date(Date.now() + PENDING_EXPIRY_MS),
     })
     .returning();
 
@@ -157,6 +234,8 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
     res.status(500).json({ error: "Failed to create order" });
     return;
   }
+
+  fireAndForget(notifyOrderCreated(order), "order_created");
 
   res.status(201).json(CreateOrderResponse.parse(order));
 });
@@ -240,6 +319,9 @@ router.post("/orders/:id/accept", requireAuth, async (req, res): Promise<void> =
     res.status(result.status ?? 400).json({ error: result.error });
     return;
   }
+  if (result.order) {
+    fireAndForget(notifyOrderAccepted(result.order), "order_accepted");
+  }
   res.json(result.order);
 });
 
@@ -250,18 +332,53 @@ router.post("/orders/:id/reject", requireAuth, async (req, res): Promise<void> =
     return;
   }
 
-  const result = await transitionOrder(
-    params.data.id,
-    "expired",
-    "supplier",
-    (order) =>
-      order.supplierId === req.currentUser!.id ? null : "Only the supplier can reject this order",
-  );
-  if (result.error) {
-    res.status(result.status ?? 400).json({ error: result.error });
+  const parsedBody = RejectOrderBody.safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    res.status(400).json({ error: parsedBody.error.message });
     return;
   }
-  res.json(result.order);
+
+  const [order] = await db
+    .select()
+    .from(ordersTable)
+    .where(eq(ordersTable.id, params.data.id));
+
+  if (!order) {
+    res.status(404).json({ error: "Order not found" });
+    return;
+  }
+
+  if (order.supplierId !== req.currentUser!.id) {
+    res.status(403).json({ error: "Only the supplier can reject this order" });
+    return;
+  }
+
+  try {
+    const nextStatus = applyTransition(order.status, "rejected", "supplier");
+    const [updated] = await db
+      .update(ordersTable)
+      .set({
+        status: nextStatus,
+        rejectReason: parsedBody.data.reason ?? null,
+      })
+      .where(eq(ordersTable.id, order.id))
+      .returning();
+
+    if (updated) {
+      fireAndForget(
+        notifyOrderRejected(updated, parsedBody.data.reason),
+        "order_rejected",
+      );
+    }
+
+    res.json(updated);
+  } catch (err) {
+    if (err instanceof InvalidOrderTransitionError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    throw err;
+  }
 });
 
 router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
@@ -287,29 +404,17 @@ router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
   }
 
   try {
-    const nextStatus = applyTransition(order.status, "payment_processing", "buyer");
-    const [updated] = await db
-      .update(ordersTable)
-      .set({ status: nextStatus })
-      .where(eq(ordersTable.id, order.id))
-      .returning();
-
-    const charge = await paymentProvider.charge({
-      orderId: order.id,
-      amount: order.totalAmount,
-      payerPhone: req.currentUser!.phone,
-    });
-
-    await db.insert(transactionsTable).values({
-      orderId: order.id,
-      type: "collection",
-      moolreReference: charge.reference,
-      status: charge.status,
-      amount: order.totalAmount,
-    });
-
+    const updated = await initiateOrderCollection(
+      order,
+      req.currentUser!.phone,
+      "buyer",
+    );
     res.json(updated);
   } catch (err) {
+    if (err instanceof PaymentInProgressError) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
     if (err instanceof InvalidOrderTransitionError) {
       res.status(409).json({ error: err.message });
       return;
@@ -352,6 +457,9 @@ router.post("/orders/:id/ship", requireAuth, async (req, res): Promise<void> => 
       })
       .where(eq(ordersTable.id, order.id))
       .returning();
+    if (updated) {
+      fireAndForget(notifyOrderShipped(updated), "order_shipped");
+    }
     res.json(updated);
   } catch (err) {
     if (err instanceof InvalidOrderTransitionError) {
@@ -369,6 +477,12 @@ router.post(
     const params = ConfirmReceiptParams.safeParse(req.params);
     if (!params.success) {
       res.status(400).json({ error: params.error.message });
+      return;
+    }
+
+    const parsedBody = ConfirmReceiptBody.safeParse(req.body ?? {});
+    if (!parsedBody.success) {
+      res.status(400).json({ error: parsedBody.error.message });
       return;
     }
 
@@ -393,37 +507,35 @@ router.post(
       .where(eq(usersTable.id, order.supplierId));
 
     try {
-      applyTransition(order.status, "completed", "buyer");
+      if (parsedBody.data.photoUrl) {
+        await db
+          .update(ordersTable)
+          .set({ confirmPhotoUrl: parsedBody.data.photoUrl })
+          .where(eq(ordersTable.id, order.id));
+      }
 
-      const payoutAmount = (
-        Number(order.totalAmount) - Number(order.platformFee)
-      ).toFixed(2);
+      const [orderForPayout] = await db
+        .select()
+        .from(ordersTable)
+        .where(eq(ordersTable.id, order.id));
 
-      const disburse = await paymentProvider.disburse({
-        orderId: order.id,
-        amount: payoutAmount,
-        payoutMomoNumber: supplier?.payoutMomoNumber ?? "",
-      });
-
-      await db.insert(transactionsTable).values({
-        orderId: order.id,
-        type: "disbursement",
-        moolreReference: disburse.reference,
-        status: disburse.status,
-        amount: payoutAmount,
-      });
-
-      const finalStatus = disburse.status === "failed" ? "payout_failed" : "completed";
-      const [updated] = await db
-        .update(ordersTable)
-        .set({ status: finalStatus })
-        .where(eq(ordersTable.id, order.id))
-        .returning();
-
+      const updated = await initiateOrderPayout(
+        orderForPayout ?? order,
+        supplier?.payoutMomoNumber ?? "",
+        "buyer",
+      );
       res.json(updated);
     } catch (err) {
+      if (err instanceof PaymentInProgressError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
       if (err instanceof InvalidOrderTransitionError) {
         res.status(409).json({ error: err.message });
+        return;
+      }
+      if (err instanceof Error && err.message.includes("payout mobile money")) {
+        res.status(400).json({ error: err.message });
         return;
       }
       throw err;
@@ -464,8 +576,29 @@ router.post(
 
     const actor = order.buyerId === req.currentUser!.id ? "buyer" : "supplier";
 
+    let targetStatus: Order["status"] = "disputed";
+    if (order.status === "completed") {
+      if (actor !== "buyer") {
+        res.status(403).json({ error: "Only the buyer can dispute a completed order" });
+        return;
+      }
+      if (!order.autoReleaseAt) {
+        res.status(409).json({ error: "Order has no auto-release timestamp" });
+        return;
+      }
+      const windowEnd =
+        order.autoReleaseAt.getTime() + POST_RELEASE_DISPUTE_WINDOW_MS;
+      if (Date.now() > windowEnd) {
+        res.status(409).json({
+          error: "Post-release dispute window has expired (7 days after auto-release)",
+        });
+        return;
+      }
+      targetStatus = "post_release_disputed";
+    }
+
     try {
-      const nextStatus = applyTransition(order.status, "disputed", actor);
+      const nextStatus = applyTransition(order.status, targetStatus, actor);
       await db
         .update(ordersTable)
         .set({ status: nextStatus })
@@ -477,8 +610,18 @@ router.post(
           orderId: order.id,
           raisedBy: req.currentUser!.id,
           reason: parsed.data.reason,
+          category: parsed.data.category ?? null,
+          evidenceUrls: parsed.data.evidenceUrls ?? null,
         })
         .returning();
+
+      const [updatedOrder] = await db
+        .select()
+        .from(ordersTable)
+        .where(eq(ordersTable.id, order.id));
+      if (updatedOrder) {
+        fireAndForget(notifyDisputeOpened(updatedOrder), "dispute_opened");
+      }
 
       res.status(201).json(dispute);
     } catch (err) {
@@ -488,6 +631,167 @@ router.post(
       }
       throw err;
     }
+  },
+);
+
+router.post(
+  "/orders/:id/request-refund",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const params = RequestRefundParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+
+    const [order] = await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.id, params.data.id));
+
+    if (!order) {
+      res.status(404).json({ error: "Order not found" });
+      return;
+    }
+
+    if (order.buyerId !== req.currentUser!.id) {
+      res.status(403).json({ error: "Only the buyer can request a refund" });
+      return;
+    }
+
+    if (order.status !== "in_escrow") {
+      res.status(409).json({ error: "Refund requests are only allowed while funds are in escrow" });
+      return;
+    }
+
+    if (order.shippedAt) {
+      res.status(409).json({ error: "Order has already been shipped" });
+      return;
+    }
+
+    const [collection] = await db
+      .select()
+      .from(transactionsTable)
+      .where(
+        and(
+          eq(transactionsTable.orderId, order.id),
+          eq(transactionsTable.type, "collection"),
+          eq(transactionsTable.status, "succeeded"),
+        ),
+      )
+      .orderBy(transactionsTable.createdAt);
+
+    if (!collection) {
+      res.status(409).json({ error: "No successful payment found for this order" });
+      return;
+    }
+
+    const eligibleAt = collection.createdAt.getTime() + REFUND_REQUEST_DELAY_MS;
+    if (Date.now() < eligibleAt) {
+      res.status(409).json({
+        error: "Refund request available 5 days after payment with no shipment update",
+      });
+      return;
+    }
+
+    try {
+      const nextStatus = applyTransition(order.status, "disputed", "buyer");
+      await db
+        .update(ordersTable)
+        .set({ status: nextStatus })
+        .where(eq(ordersTable.id, order.id));
+
+      const [dispute] = await db
+        .insert(disputesTable)
+        .values({
+          orderId: order.id,
+          raisedBy: req.currentUser!.id,
+          reason: "Buyer refund request: no shipment update after 5 days",
+          category: "non_delivery",
+        })
+        .returning();
+
+      const [updatedOrder] = await db
+        .select()
+        .from(ordersTable)
+        .where(eq(ordersTable.id, order.id));
+      if (updatedOrder) {
+        fireAndForget(notifyDisputeOpened(updatedOrder), "dispute_opened");
+      }
+
+      res.status(201).json(dispute);
+    } catch (err) {
+      if (err instanceof InvalidOrderTransitionError) {
+        res.status(409).json({ error: err.message });
+        return;
+      }
+      throw err;
+    }
+  },
+);
+
+router.post(
+  "/orders/:id/dispute-reply",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const params = ReplyToDisputeParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+
+    const parsed = ReplyToDisputeBody.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    const [order] = await db
+      .select()
+      .from(ordersTable)
+      .where(eq(ordersTable.id, params.data.id));
+
+    if (!order) {
+      res.status(404).json({ error: "Order not found" });
+      return;
+    }
+
+    if (order.supplierId !== req.currentUser!.id) {
+      res.status(403).json({ error: "Only the supplier can reply to a dispute" });
+      return;
+    }
+
+    if (order.status !== "disputed" && order.status !== "post_release_disputed") {
+      res.status(409).json({ error: "Order is not under dispute" });
+      return;
+    }
+
+    const [openDispute] = await db
+      .select()
+      .from(disputesTable)
+      .where(
+        and(
+          eq(disputesTable.orderId, order.id),
+          eq(disputesTable.status, "open"),
+        ),
+      )
+      .orderBy(disputesTable.createdAt);
+
+    if (!openDispute) {
+      res.status(409).json({ error: "No open dispute found for this order" });
+      return;
+    }
+
+    const [reply] = await db
+      .insert(disputeRepliesTable)
+      .values({
+        disputeId: openDispute.id,
+        authorId: req.currentUser!.id,
+        message: parsed.data.message,
+      })
+      .returning();
+
+    res.status(201).json(reply);
   },
 );
 

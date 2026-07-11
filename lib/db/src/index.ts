@@ -11,6 +11,12 @@ if (!process.env.DATABASE_URL) {
 }
 
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+
+// Prevent idle connection drops (e.g. Postgres restart) from crashing the API process.
+pool.on("error", (err) => {
+  console.error("[db] Unexpected pool client error:", err.message);
+});
+
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";

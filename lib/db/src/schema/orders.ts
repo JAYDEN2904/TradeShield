@@ -5,6 +5,8 @@ import {
   numeric,
   timestamp,
   pgEnum,
+  text,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -21,9 +23,12 @@ export const orderStatusEnum = pgEnum("order_status", [
   "payment_processing",
   "in_escrow",
   "shipped",
+  "payout_processing",
   "completed",
   "disputed",
+  "post_release_disputed",
   "expired",
+  "rejected",
   "payout_failed",
 ]);
 
@@ -51,6 +56,18 @@ export const ordersTable = pgTable("orders", {
     .defaultNow(),
   shippedAt: timestamp("shipped_at", { withTimezone: true }),
   autoReleaseAt: timestamp("auto_release_at", { withTimezone: true }),
+  deliveryLocation: text("delivery_location"),
+  preferredDeliveryDate: timestamp("preferred_delivery_date", {
+    withTimezone: true,
+  }),
+  rejectReason: text("reject_reason"),
+  /** Supplier must respond before this time or the order auto-expires (24h). */
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  autoReleaseReminderSent: boolean("auto_release_reminder_sent")
+    .notNull()
+    .default(false),
+  /** Optional photo URL attached by buyer at confirm-receipt. */
+  confirmPhotoUrl: text("confirm_photo_url"),
 });
 
 export const insertOrderSchema = createInsertSchema(ordersTable).omit({

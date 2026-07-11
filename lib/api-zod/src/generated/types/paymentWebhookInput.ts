@@ -8,7 +8,7 @@
 import type { PaymentWebhookInputStatus } from './paymentWebhookInputStatus';
 
 export interface PaymentWebhookInput {
-  orderId: number;
+  orderId?: number;
   moolreReference: string;
   status: PaymentWebhookInputStatus;
 }

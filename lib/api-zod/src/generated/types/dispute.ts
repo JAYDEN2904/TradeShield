@@ -5,6 +5,7 @@
  * TradeShield B2B escrow marketplace API
  * OpenAPI spec version: 0.1.0
  */
+import type { DisputeCategory } from './disputeCategory';
 import type { DisputeStatus } from './disputeStatus';
 
 export interface Dispute {
@@ -13,6 +14,9 @@ export interface Dispute {
   raisedBy: number;
   reason: string;
   status: DisputeStatus;
+  category?: DisputeCategory | null;
+  /** @nullable */
+  evidenceUrls?: string[] | null;
   /** @nullable */
   resolution?: string | null;
   /** @nullable */
