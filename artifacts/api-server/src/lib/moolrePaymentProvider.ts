@@ -8,184 +8,182 @@ import type {
   RefundRequest,
   RefundResult,
 } from "./paymentProvider";
+import type { MoolreCredentials } from "./moolreConfig";
+import {
+  extractProviderTransactionId,
+  interpretMoolreTransactionResponse,
+  moolreFetch,
+  resolveMomoChannel,
+  toMoolreMsisdn,
+} from "./moolreClient";
 import { logger } from "./logger";
 
-type MoolrePaymentProviderConfig = {
-  baseUrl: string;
-  collectionsCallbackUrl: string;
-  disbursementsCallbackUrl: string;
-  /** Production: X-API-KEY + X-API-PUBKEY */
-  apiKey?: string;
-  apiPubKey?: string;
-  /** Sandbox: X-API-USER only */
-  sandboxUser?: string;
-};
-
 /**
- * Moolre Collections + Transfer adapter.
- * Auth: production uses X-API-KEY + X-API-PUBKEY; sandbox uses X-API-USER.
+ * Moolre Collections + Transfer adapter (official /open/transact/* API).
+ * Auth: X-API-USER always; X-API-KEY on live (optional on sandbox).
  */
 export class MoolrePaymentProvider implements PaymentProvider {
-  constructor(private readonly config: MoolrePaymentProviderConfig) {}
-
-  private headers(): Record<string, string> {
-    const base: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-
-    if (this.config.sandboxUser) {
-      return { ...base, "X-API-USER": this.config.sandboxUser };
-    }
-
-    return {
-      ...base,
-      "X-API-KEY": this.config.apiKey ?? "",
-      "X-API-PUBKEY": this.config.apiPubKey ?? "",
-    };
-  }
-
-  private mapStatus(raw: string | undefined): ProviderTransactionStatus {
-    const value = raw?.toLowerCase();
-    if (value === "successful" || value === "succeeded" || value === "success") {
-      return "succeeded";
-    }
-    if (value === "failed" || value === "failure") {
-      return "failed";
-    }
-    return "pending";
-  }
+  constructor(private readonly creds: MoolreCredentials) {}
 
   async charge(request: ChargeRequest): Promise<ChargeResult> {
-    const body = {
-      amount: Number(request.amount),
-      currency: "GHS",
-      channel: "mobile_money",
-      customer_msisdn: request.payerPhone,
-      reference: request.reference,
-      callback_url: this.config.collectionsCallbackUrl,
-      description: `Order #${request.orderId} escrow payment`,
-    };
+    const payer = toMoolreMsisdn(request.payerPhone);
+    const channel = resolveMomoChannel(request.payerPhone);
 
-    const response = await fetch(`${this.config.baseUrl}/collections/charge`, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify(body),
-    });
+    const { ok, httpStatus, body, text } = await moolreFetch(
+      this.creds,
+      "/open/transact/payment",
+      {
+        body: {
+          type: 1,
+          channel,
+          currency: "GHS",
+          payer,
+          amount: String(request.amount),
+          externalref: request.reference,
+          otpcode: "",
+          reference: `Order #${request.orderId} escrow payment`,
+          sessionid: "",
+          accountnumber: this.creds.accountNumber,
+        },
+      },
+    );
 
-    if (!response.ok) {
-      const text = await response.text();
-      logger.error({ status: response.status, text }, "Moolre collection charge failed");
-      throw new Error(`Moolre collection failed (${response.status})`);
+    if (!ok && body.code !== "TR099" && body.code !== "TP14") {
+      logger.error(
+        { status: httpStatus, code: body.code, text },
+        "Moolre collection charge failed",
+      );
+      throw new Error(
+        `Moolre collection failed (${httpStatus}): ${body.code ?? text.slice(0, 120)}`,
+      );
     }
 
-    const data = (await response.json()) as {
-      status?: string;
-      transaction_id?: string;
-    };
+    if (body.code === "TP14") {
+      logger.warn(
+        { orderId: request.orderId, reference: request.reference },
+        "Moolre requires OTP verification (TP14) before payment can proceed",
+      );
+    }
 
     return {
       reference: request.reference,
-      status: this.mapStatus(data.status),
-      providerTransactionId: data.transaction_id,
+      status: interpretMoolreTransactionResponse(body),
+      providerTransactionId: extractProviderTransactionId(body),
     };
   }
 
   async disburse(request: DisburseRequest): Promise<DisburseResult> {
-    const body = {
-      amount: Number(request.amount),
-      currency: "GHS",
-      recipient_msisdn: request.payoutMomoNumber,
-      reference: request.reference,
-      callback_url: this.config.disbursementsCallbackUrl,
-      narration: `Payout for order #${request.orderId}`,
-    };
+    const receiver = toMoolreMsisdn(request.payoutMomoNumber);
+    const channel = resolveMomoChannel(request.payoutMomoNumber);
 
-    const response = await fetch(`${this.config.baseUrl}/disbursements/payout`, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify(body),
-    });
+    const { ok, httpStatus, body, text } = await moolreFetch(
+      this.creds,
+      "/open/transact/transfer",
+      {
+        body: {
+          type: 1,
+          channel,
+          currency: "GHS",
+          amount: String(request.amount),
+          receiver,
+          sublistid: "",
+          externalref: request.reference,
+          reference: `Payout for order #${request.orderId}`,
+          accountnumber: this.creds.accountNumber,
+        },
+      },
+    );
 
-    if (!response.ok) {
-      const text = await response.text();
-      logger.error({ status: response.status, text }, "Moolre disbursement failed");
-      throw new Error(`Moolre disbursement failed (${response.status})`);
+    if (!ok) {
+      logger.error(
+        { status: httpStatus, code: body.code, text },
+        "Moolre disbursement failed",
+      );
+      throw new Error(
+        `Moolre disbursement failed (${httpStatus}): ${body.code ?? text.slice(0, 120)}`,
+      );
     }
-
-    const data = (await response.json()) as {
-      status?: string;
-      transaction_id?: string;
-    };
 
     return {
       reference: request.reference,
-      status: this.mapStatus(data.status),
-      providerTransactionId: data.transaction_id,
+      status: interpretMoolreTransactionResponse(body),
+      providerTransactionId: extractProviderTransactionId(body),
     };
   }
 
+  /**
+   * Moolre has no dedicated refund endpoint — refund via MoMo transfer
+   * back to the buyer when recipientPhone is provided.
+   */
   async refund(request: RefundRequest): Promise<RefundResult> {
-    const body = {
-      amount: Number(request.amount),
-      currency: "GHS",
-      reference: request.reference,
-      callback_url: this.config.collectionsCallbackUrl,
-      narration: `Refund for order #${request.orderId}`,
-    };
-
-    const response = await fetch(`${this.config.baseUrl}/collections/refund`, {
-      method: "POST",
-      headers: this.headers(),
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      logger.error({ status: response.status, text }, "Moolre refund failed");
-      throw new Error(`Moolre refund failed (${response.status})`);
+    if (!request.recipientPhone?.trim()) {
+      throw new Error(
+        "Moolre refund requires recipientPhone (buyer MoMo number)",
+      );
     }
 
-    const data = (await response.json()) as {
-      status?: string;
-      transaction_id?: string;
-    };
-
-    return {
+    return this.disburse({
+      orderId: request.orderId,
+      amount: request.amount,
+      payoutMomoNumber: request.recipientPhone,
       reference: request.reference,
-      status: this.mapStatus(data.status),
-      providerTransactionId: data.transaction_id,
-    };
+    });
   }
 
   async getCollectionStatus(reference: string): Promise<ProviderTransactionStatus> {
-    const response = await fetch(
-      `${this.config.baseUrl}/collections/status/${encodeURIComponent(reference)}`,
-      { headers: this.headers() },
-    );
-
-    if (!response.ok) {
-      logger.warn({ reference, status: response.status }, "Moolre collection status poll failed");
-      return "pending";
-    }
-
-    const data = (await response.json()) as { status?: string };
-    return this.mapStatus(data.status);
+    return this.pollStatus(reference, "public");
   }
 
   async getDisbursementStatus(reference: string): Promise<ProviderTransactionStatus> {
-    const response = await fetch(
-      `${this.config.baseUrl}/disbursements/status/${encodeURIComponent(reference)}`,
-      { headers: this.headers() },
+    return this.pollStatus(reference, "private");
+  }
+
+  private async pollStatus(
+    reference: string,
+    authMode: "private" | "public",
+  ): Promise<ProviderTransactionStatus> {
+    const { ok, httpStatus, body } = await moolreFetch(
+      this.creds,
+      "/open/transact/status",
+      {
+        authMode,
+        body: {
+          type: 1,
+          idtype: "externalref",
+          id: reference,
+          accountnumber: this.creds.accountNumber,
+        },
+      },
     );
 
-    if (!response.ok) {
-      logger.warn({ reference, status: response.status }, "Moolre disbursement status poll failed");
+    if (httpStatus >= 500) {
+      logger.warn(
+        { reference, status: httpStatus, code: body.code },
+        "Moolre status poll failed",
+      );
       return "pending";
     }
 
-    const data = (await response.json()) as { status?: string };
-    return this.mapStatus(data.status);
+    const interpreted = interpretMoolreTransactionResponse(body);
+    if (!ok && interpreted === "failed") {
+      const data = body.data;
+      const hasTxStatus =
+        data &&
+        typeof data === "object" &&
+        !Array.isArray(data) &&
+        "txstatus" in (data as object);
+      // Not-found / error envelopes without txstatus stay pending
+      if (!hasTxStatus) {
+        logger.warn(
+          { reference, code: body.code, status: body.status },
+          "Moolre status poll inconclusive — treating as pending",
+        );
+        return "pending";
+      }
+    }
+
+    return interpreted;
   }
 }
 
-export type { MoolrePaymentProviderConfig };
+export type { MoolreCredentials as MoolrePaymentProviderConfig };

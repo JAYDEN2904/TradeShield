@@ -1,10 +1,16 @@
 /**
  * SMS provider adapter — mirrors the payment provider pattern.
- * Mock logs to console + sms_logs; Moolre when credentials are configured.
+ * Mock logs to console + sms_logs; Moolre when VAS key is configured.
  */
 
 import { db, smsLogsTable } from "@workspace/db";
 import { logger } from "./logger";
+import { resolveMoolreCredentials } from "./moolreConfig";
+import {
+  isMoolreSuccessStatus,
+  moolreFetch,
+  toMoolreMsisdn,
+} from "./moolreClient";
 
 export type SmsTemplate =
   | "otp"
@@ -61,52 +67,41 @@ export class MockSmsProvider implements SmsProvider {
   }
 }
 
-type MoolreSmsConfig = {
-  baseUrl: string;
-  apiKey?: string;
-  apiPubKey?: string;
-  sandboxUser?: string;
-  vasKey?: string;
-};
+type MoolreSmsConfig = NonNullable<ReturnType<typeof resolveMoolreCredentials>>;
 
 export class MoolreSmsProvider implements SmsProvider {
   constructor(private readonly config: MoolreSmsConfig) {}
 
-  private headers(): Record<string, string> {
-    const base: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-
-    if (this.config.sandboxUser) {
-      return { ...base, "X-API-USER": this.config.sandboxUser };
-    }
-
-    const headers: Record<string, string> = {
-      ...base,
-      "X-API-KEY": this.config.apiKey ?? "",
-      "X-API-PUBKEY": this.config.apiPubKey ?? "",
-    };
-
-    if (this.config.vasKey) {
-      headers["X-API-VASKEY"] = this.config.vasKey;
-    }
-
-    return headers;
-  }
-
   async send(input: SendSmsInput): Promise<{ ok: boolean; error?: string }> {
     try {
-      const response = await fetch(`${this.config.baseUrl}/sms/send`, {
-        method: "POST",
-        headers: this.headers(),
-        body: JSON.stringify({
-          to: input.to,
-          message: input.body,
-        }),
-      });
+      const recipient = toMoolreMsisdn(input.to);
+      const ref = `sms-${input.template}-${Date.now()}`;
 
-      if (!response.ok) {
-        const error = `Moolre SMS HTTP ${response.status}`;
+      const { httpStatus, body, text } = await moolreFetch(
+        this.config,
+        "/open/sms/send",
+        {
+          authMode: "vas",
+          body: {
+            type: 1,
+            senderid: this.config.smsSenderId,
+            messages: [
+              {
+                recipient,
+                message: input.body,
+                ref,
+              },
+            ],
+          },
+        },
+      );
+
+      if (!isMoolreSuccessStatus(body.status)) {
+        const error = `Moolre SMS ${body.code ?? `HTTP ${httpStatus}`}: ${
+          typeof body.message === "string"
+            ? body.message
+            : text.slice(0, 120)
+        }`;
         await logSmsAttempt(input, false, error);
         return { ok: false, error };
       }
@@ -122,26 +117,11 @@ export class MoolreSmsProvider implements SmsProvider {
 }
 
 function createSmsProvider(): SmsProvider {
-  const baseUrl = process.env.MOOLRE_BASE_URL ?? "https://api.moolre.com";
-  const vasKey = process.env.MOOLRE_VAS_KEY;
-
-  const sandboxUser = process.env.MOOLRE_SANDBOX_USER;
-  if (sandboxUser) {
-    return new MoolreSmsProvider({ baseUrl, sandboxUser, vasKey });
+  const creds = resolveMoolreCredentials();
+  // SMS always requires X-API-VASKEY per Moolre docs
+  if (creds?.vasKey) {
+    return new MoolreSmsProvider(creds);
   }
-
-  const apiKey = process.env.MOOLRE_API_KEY;
-  const apiPubKey = process.env.MOOLRE_API_PUBKEY ?? process.env.MOOLRE_API_SECRET;
-
-  if (apiKey && apiPubKey) {
-    return new MoolreSmsProvider({
-      apiKey,
-      apiPubKey,
-      baseUrl,
-      vasKey,
-    });
-  }
-
   return new MockSmsProvider();
 }
 

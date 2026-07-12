@@ -10,17 +10,14 @@ import {
   applyCollectionWebhook,
   applyDisbursementWebhook,
 } from "./webhookHandlers";
+import { isMoolreConfigured } from "./moolreConfig";
 import { logger } from "./logger";
 
-const CHECK_INTERVAL_MS =
-  process.env.MOOLRE_API_KEY && process.env.MOOLRE_API_SECRET
-    ? 30 * 1000
-    : 5 * 1000;
+const usingMoolre = isMoolreConfigured();
 
-const MIN_PENDING_AGE_MS =
-  process.env.MOOLRE_API_KEY && process.env.MOOLRE_API_SECRET
-    ? 2 * 60 * 1000
-    : 2 * 1000;
+const CHECK_INTERVAL_MS = usingMoolre ? 30 * 1000 : 5 * 1000;
+
+const MIN_PENDING_AGE_MS = usingMoolre ? 2 * 60 * 1000 : 2 * 1000;
 
 async function reconcilePendingCollections(): Promise<void> {
   const cutoff = new Date(Date.now() - MIN_PENDING_AGE_MS);

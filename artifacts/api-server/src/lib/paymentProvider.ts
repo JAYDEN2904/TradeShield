@@ -7,6 +7,7 @@
  */
 
 import { MoolrePaymentProvider } from "./moolrePaymentProvider";
+import { resolveMoolreCredentials } from "./moolreConfig";
 
 export type ProviderTransactionStatus = "pending" | "succeeded" | "failed";
 
@@ -42,6 +43,8 @@ export interface RefundRequest {
   orderId: number;
   amount: string;
   reference: string;
+  /** Buyer MoMo number — required for Moolre (refund = transfer). */
+  recipientPhone?: string;
 }
 
 export interface RefundResult {
@@ -119,35 +122,10 @@ export class MockPaymentProvider implements PaymentProvider {
 }
 
 function createPaymentProvider(): PaymentProvider {
-  const baseUrl = process.env.MOOLRE_BASE_URL ?? "https://api.moolre.com";
-  const collectionsCallbackUrl =
-    process.env.MOOLRE_COLLECTIONS_CALLBACK_URL ?? "";
-  const disbursementsCallbackUrl =
-    process.env.MOOLRE_DISBURSEMENTS_CALLBACK_URL ?? "";
-
-  const sandboxUser = process.env.MOOLRE_SANDBOX_USER;
-  if (sandboxUser) {
-    return new MoolrePaymentProvider({
-      baseUrl,
-      collectionsCallbackUrl,
-      disbursementsCallbackUrl,
-      sandboxUser,
-    });
+  const creds = resolveMoolreCredentials();
+  if (creds) {
+    return new MoolrePaymentProvider(creds);
   }
-
-  const apiKey = process.env.MOOLRE_API_KEY;
-  const apiPubKey = process.env.MOOLRE_API_PUBKEY ?? process.env.MOOLRE_API_SECRET;
-
-  if (apiKey && apiPubKey) {
-    return new MoolrePaymentProvider({
-      apiKey,
-      apiPubKey,
-      baseUrl,
-      collectionsCallbackUrl,
-      disbursementsCallbackUrl,
-    });
-  }
-
   return new MockPaymentProvider();
 }
 

@@ -3,6 +3,7 @@ import {
   db,
   ordersTable,
   transactionsTable,
+  usersTable,
   type Order,
 } from "@workspace/db";
 import {
@@ -298,10 +299,17 @@ export async function initiateOrderRefund(
 
   if (successfulCollection) {
     try {
+      const [buyer] = await db
+        .select({ phone: usersTable.phone })
+        .from(usersTable)
+        .where(eq(usersTable.id, order.buyerId))
+        .limit(1);
+
       const refund = await paymentProvider.refund({
         orderId: order.id,
         amount: refundAmount,
         reference,
+        recipientPhone: buyer?.phone,
       });
 
       if (refund.status === "succeeded") {
