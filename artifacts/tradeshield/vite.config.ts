@@ -14,12 +14,31 @@ if (Number.isNaN(port) || port <= 0) {
 
 const basePath = process.env.BASE_PATH ?? "/";
 
+/** shadcn/ui ships with Next.js "use client" — strip it for Vite builds. */
+function stripUseClientDirective() {
+  return {
+    name: "strip-use-client",
+    transform(code: string, id: string) {
+      if (!id.includes("/src/") || !code.startsWith('"use client"')) {
+        return null;
+      }
+      return {
+        code: code.replace(/^"use client"\s*\r?\n/, ""),
+        map: null,
+      };
+    },
+  };
+}
+
 export default defineConfig({
   base: basePath,
   plugins: [
+    stripUseClientDirective(),
     react(),
     tailwindcss(),
-    runtimeErrorOverlay(),
+    ...(process.env.NODE_ENV !== "production"
+      ? [runtimeErrorOverlay()]
+      : []),
     ...(process.env.NODE_ENV !== "production" &&
     process.env.REPL_ID !== undefined
       ? [

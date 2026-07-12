@@ -19,7 +19,7 @@ run = "pnpm --filter @workspace/tradeshield run dev"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/tradeshield", "run", "build" ]
-publicDir = "artifacts/tradeshield/dist/public"
+publicDir = "artifacts/tradeshield/dist"
 serve = "static"
 
 [[services.production.rewrites]]

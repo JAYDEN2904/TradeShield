@@ -1079,6 +1079,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /uploads/product-image:
+    post:
+      operationId: uploadProductImage
+      tags: [uploads]
+      summary: Upload a product photo (JPEG, PNG, or WebP)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: Upload successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadProductImageResponse"
+        "400":
+          description: Invalid file
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /kyc/submit:
     post:
       operationId: submitKyc
@@ -2069,6 +2105,14 @@ components:
             $ref: "#/components/schemas/KycDocument"
 
     UploadKycDocumentResponse:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
+
+    UploadProductImageResponse:
       type: object
       required: [url]
       properties:

@@ -66,6 +66,8 @@ import type {
   SupplierStats,
   UploadKycDocumentBody,
   UploadKycDocumentResponse,
+  UploadProductImageBody,
+  UploadProductImageResponse,
   User,
   UserUpdate,
   WebhookAck
@@ -3176,6 +3178,78 @@ export const useUploadKycDocument = <TError = ErrorType<ErrorResponse>,
         TContext
       > => {
       return useMutation(getUploadKycDocumentMutationOptions(options));
+    }
+
+export const getUploadProductImageUrl = () => {
+
+
+
+
+  return `/api/uploads/product-image`
+}
+
+/**
+ * @summary Upload a product photo (JPEG, PNG, or WebP)
+ */
+export const uploadProductImage = async (uploadProductImageBody: UploadProductImageBody, options?: RequestInit): Promise<UploadProductImageResponse> => {
+    const formData = new FormData();
+formData.append(`file`, uploadProductImageBody.file);
+
+  return customFetch<UploadProductImageResponse>(getUploadProductImageUrl(),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+export const getUploadProductImageMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadProductImage>>, TError,{data: BodyType<UploadProductImageBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadProductImage>>, TError,{data: BodyType<UploadProductImageBody>}, TContext> => {
+
+const mutationKey = ['uploadProductImage'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadProductImage>>, {data: BodyType<UploadProductImageBody>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  uploadProductImage(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadProductImageMutationResult = NonNullable<Awaited<ReturnType<typeof uploadProductImage>>>
+    export type UploadProductImageMutationBody = BodyType<UploadProductImageBody>
+    export type UploadProductImageMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Upload a product photo (JPEG, PNG, or WebP)
+ */
+export const useUploadProductImage = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadProductImage>>, TError,{data: BodyType<UploadProductImageBody>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof uploadProductImage>>,
+        TError,
+        {data: BodyType<UploadProductImageBody>},
+        TContext
+      > => {
+      return useMutation(getUploadProductImageMutationOptions(options));
     }
 
 export const getSubmitKycUrl = () => {

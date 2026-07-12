@@ -1,16 +1,17 @@
-import { useState } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
 import { useAuth } from "@/lib/auth";
 import {
   useListProducts,
   getListProductsQueryKey,
   useCreateProduct,
   useUpdateProduct,
+  useUploadProductImage,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Edit, Package, Plus } from "lucide-react";
+import { Edit, ImagePlus, Loader2, Package, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -47,6 +48,7 @@ import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { formatGhs } from "@/lib/format";
+import { getErrorMessage } from "@/lib/utils";
 import { PRODUCT_CATEGORIES } from "@/lib/catalog-constants";
 import type { CatalogProduct } from "@workspace/api-client-react";
 
@@ -57,9 +59,12 @@ const productSchema = z.object({
   moq: z.coerce.number().min(1),
   unit: z.string().min(1, "Unit is required"),
   stockQty: z.coerce.number().min(0),
-  photoUrl: z.string().url().optional().or(z.literal("")),
+  photoUrl: z.string().optional().or(z.literal("")),
   isActive: z.boolean().default(true),
 });
+
+const PRODUCT_IMAGE_ACCEPT = "image/jpeg,image/png,image/webp";
+const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
 
 export function SupplierProductsPanel() {
   const { user } = useAuth();
@@ -67,6 +72,10 @@ export function SupplierProductsPanel() {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const { data: products, isLoading } = useListProducts(
     { supplierId: user?.id },
@@ -103,6 +112,8 @@ export function SupplierProductsPanel() {
     },
   });
 
+  const uploadMut = useUploadProductImage();
+
   const form = useForm<z.infer<typeof productSchema>>({
     resolver: zodResolver(productSchema),
     defaultValues: {
@@ -117,6 +128,13 @@ export function SupplierProductsPanel() {
     },
   });
 
+  const resetPhotoState = (url = "") => {
+    setPhotoPreview(url || null);
+    setPhotoUploading(false);
+    setPhotoError(null);
+    if (photoInputRef.current) photoInputRef.current.value = "";
+  };
+
   const openNew = () => {
     setEditingId(null);
     form.reset({
@@ -129,6 +147,7 @@ export function SupplierProductsPanel() {
       photoUrl: "",
       isActive: true,
     });
+    resetPhotoState();
     setIsDialogOpen(true);
   };
 
@@ -144,14 +163,66 @@ export function SupplierProductsPanel() {
       photoUrl: product.photoUrl || "",
       isActive: product.isActive,
     });
+    resetPhotoState(product.photoUrl || "");
     setIsDialogOpen(true);
   };
 
+  const clearPhoto = () => {
+    form.setValue("photoUrl", "");
+    resetPhotoState();
+  };
+
+  const handlePhotoChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!PRODUCT_IMAGE_ACCEPT.split(",").includes(file.type)) {
+      setPhotoError("Use a JPEG, PNG, or WebP image");
+      return;
+    }
+    if (file.size > MAX_PRODUCT_IMAGE_BYTES) {
+      setPhotoError("Image must be 5 MB or smaller");
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    setPhotoPreview(objectUrl);
+    setPhotoError(null);
+    setPhotoUploading(true);
+
+    try {
+      const result = await uploadMut.mutateAsync({ data: { file } });
+      form.setValue("photoUrl", result.url, { shouldDirty: true, shouldValidate: true });
+      setPhotoPreview(result.url);
+    } catch (err) {
+      setPhotoError(getErrorMessage(err, "Upload failed. Please try again."));
+      form.setValue("photoUrl", "");
+      setPhotoPreview(null);
+    } finally {
+      setPhotoUploading(false);
+      URL.revokeObjectURL(objectUrl);
+    }
+  };
+
   const onSubmit = (values: z.infer<typeof productSchema>) => {
+    if (photoUploading) {
+      toast({
+        title: "Still uploading",
+        description: "Wait for the photo to finish uploading",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const payload = {
+      ...values,
+      photoUrl: values.photoUrl || undefined,
+    };
+
     if (editingId) {
-      updateMut.mutate({ id: editingId, data: values });
+      updateMut.mutate({ id: editingId, data: payload });
     } else {
-      createMut.mutate({ data: values });
+      createMut.mutate({ data: payload });
     }
   };
 
@@ -374,12 +445,83 @@ export function SupplierProductsPanel() {
               <FormField
                 control={form.control}
                 name="photoUrl"
-                render={({ field }) => (
+                render={() => (
                   <FormItem>
-                    <FormLabel>Photo URL (optional)</FormLabel>
+                    <FormLabel>Product photo (optional)</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <div className="space-y-2">
+                        <div
+                          className="relative flex min-h-[140px] cursor-pointer flex-col items-center justify-center gap-2 overflow-hidden rounded-lg border-2 border-dashed border-border bg-muted/30 p-4 transition-colors hover:bg-muted/50"
+                          onClick={() => {
+                            if (!photoUploading) photoInputRef.current?.click();
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              if (!photoUploading) photoInputRef.current?.click();
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                        >
+                          {photoPreview ? (
+                            <img
+                              src={photoPreview}
+                              alt="Product preview"
+                              className="max-h-36 max-w-full rounded object-contain"
+                            />
+                          ) : (
+                            <>
+                              <ImagePlus className="h-8 w-8 text-muted-foreground" />
+                              <p className="text-sm text-muted-foreground">
+                                Tap to upload from your device
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                JPEG, PNG or WebP · max 5 MB
+                              </p>
+                            </>
+                          )}
+                          {photoUploading && (
+                            <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-lg bg-background/70">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              <p className="text-sm font-medium">Uploading…</p>
+                            </div>
+                          )}
+                          <input
+                            ref={photoInputRef}
+                            type="file"
+                            accept={PRODUCT_IMAGE_ACCEPT}
+                            capture="environment"
+                            className="hidden"
+                            onChange={handlePhotoChange}
+                          />
+                        </div>
+                        {photoPreview && !photoUploading && (
+                          <div className="flex gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => photoInputRef.current?.click()}
+                            >
+                              Replace photo
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              onClick={clearPhoto}
+                            >
+                              <X className="mr-1 h-4 w-4" />
+                              Remove
+                            </Button>
+                          </div>
+                        )}
+                      </div>
                     </FormControl>
+                    {photoError && (
+                      <p className="text-sm font-medium text-destructive">{photoError}</p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -414,7 +556,9 @@ export function SupplierProductsPanel() {
                 </Button>
                 <Button
                   type="submit"
-                  disabled={createMut.isPending || updateMut.isPending}
+                  disabled={
+                    createMut.isPending || updateMut.isPending || photoUploading
+                  }
                 >
                   {createMut.isPending || updateMut.isPending
                     ? "Saving…"

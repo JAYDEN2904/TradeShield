@@ -515,6 +515,10 @@ export interface UploadKycDocumentResponse {
   url: string;
 }
 
+export interface UploadProductImageResponse {
+  url: string;
+}
+
 export type GetSupplierDashboardParams = {
 earningsPeriod?: GetSupplierDashboardEarningsPeriod;
 };
@@ -577,6 +581,10 @@ export const ListDisputesStatus = {
 } as const;
 
 export type UploadKycDocumentBody = {
+  file: Blob;
+};
+
+export type UploadProductImageBody = {
   file: Blob;
 };
 

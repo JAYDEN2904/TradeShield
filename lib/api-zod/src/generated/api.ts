@@ -1357,6 +1357,18 @@ export const UploadKycDocumentResponse = zod.object({
 
 
 /**
+ * @summary Upload a product photo (JPEG, PNG, or WebP)
+ */
+export const UploadProductImageBody = zod.object({
+  "file": zod.instanceof(File)
+})
+
+export const UploadProductImageResponse = zod.object({
+  "url": zod.string().url()
+})
+
+
+/**
  * @summary Submit Ghana Card details for verification
  */
 export const SubmitKycBody = zod.object({

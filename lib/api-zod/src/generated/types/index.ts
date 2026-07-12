@@ -68,6 +68,8 @@ export * from './supplierDashboardOnboarding';
 export * from './supplierStats';
 export * from './uploadKycDocumentBody';
 export * from './uploadKycDocumentResponse';
+export * from './uploadProductImageBody';
+export * from './uploadProductImageResponse';
 export * from './user';
 export * from './userRole';
 export * from './userUpdate';
