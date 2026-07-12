@@ -17,6 +17,7 @@ import {
   buildRefundReference,
 } from "./paymentReferences";
 import { paymentProvider } from "./paymentProvider";
+import { applyCollectionWebhook, applyDisbursementWebhook } from "./webhookHandlers";
 import { logger } from "./logger";
 
 export class PaymentInProgressError extends Error {
@@ -24,6 +25,61 @@ export class PaymentInProgressError extends Error {
     super(message);
     this.name = "PaymentInProgressError";
   }
+}
+
+/** Provider rejected the charge/payout synchronously — order was rolled back. */
+export class PaymentProviderRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PaymentProviderRejectedError";
+  }
+}
+
+function isTransientProviderError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  return (
+    msg.includes("timeout") ||
+    msg.includes("etimedout") ||
+    msg.includes("econnreset") ||
+    msg.includes("econnrefused") ||
+    msg.includes("enotfound") ||
+    msg.includes("fetch failed") ||
+    msg.includes("network") ||
+    msg.includes("socket hang up") ||
+    err.name === "AbortError" ||
+    err.name === "TimeoutError"
+  );
+}
+
+function providerRejectionMessage(err: unknown, kind: "payment" | "payout"): string {
+  if (!(err instanceof Error)) {
+    return kind === "payment"
+      ? "Payment could not be started. Please try again."
+      : "Payout could not be started. Please try again.";
+  }
+
+  // Prefer Moolre's human-readable message when present: "...: TP04 — Account number..."
+  const dashIdx = err.message.indexOf(" — ");
+  if (dashIdx >= 0) {
+    const detail = err.message.slice(dashIdx + 3).trim();
+    if (detail) {
+      return kind === "payment"
+        ? `Payment could not be started: ${detail}`
+        : `Payout could not be started: ${detail}`;
+    }
+  }
+
+  const codeMatch = err.message.match(/\(([0-9]+)\):\s*([A-Z0-9]+)/i);
+  if (codeMatch?.[2]) {
+    return kind === "payment"
+      ? `Payment could not be started (provider code ${codeMatch[2]}). Please try again or contact support.`
+      : `Payout could not be started (provider code ${codeMatch[2]}). Please try again or contact support.`;
+  }
+
+  return kind === "payment"
+    ? "Payment could not be started. Please try again."
+    : "Payout could not be started. Please try again.";
 }
 
 async function nextCollectionAttempt(orderId: number): Promise<number> {
@@ -85,6 +141,8 @@ async function hasPendingDisbursement(orderId: number): Promise<boolean> {
 /**
  * Initiates a Collections charge. Persists reference + payment_processing
  * before calling the provider. Never transitions to in_escrow synchronously.
+ * Hard provider rejections roll back to awaiting_payment; only transient
+ * network/timeouts leave the order in payment_processing for reconciliation.
  */
 export async function initiateOrderCollection(
   order: Order,
@@ -137,12 +195,44 @@ export async function initiateOrderCollection(
         "Provider returned unexpected collection reference",
       );
     }
+
+    // Provider accepted but already reported a terminal failure (no USSD pending).
+    if (charge.status === "failed") {
+      await applyCollectionWebhook({
+        orderId: order.id,
+        moolreReference: reference,
+        status: "failed",
+      });
+      throw new PaymentProviderRejectedError(
+        "Payment could not be started. Please try again.",
+      );
+    }
   } catch (err) {
-    // Timeout or network error — leave payment_processing; polling/webhook resolves.
-    logger.error(
-      { orderId: order.id, reference, err },
-      "Collection API call failed; order left in payment_processing for reconciliation",
-    );
+    if (err instanceof PaymentProviderRejectedError) {
+      throw err;
+    }
+
+    if (isTransientProviderError(err)) {
+      // Timeout / network — leave payment_processing; polling/webhook resolves.
+      logger.error(
+        { orderId: order.id, reference, err },
+        "Collection API call failed; order left in payment_processing for reconciliation",
+      );
+    } else {
+      // Hard provider rejection (e.g. TP04) — roll back so the UI is not stuck forever.
+      logger.error(
+        { orderId: order.id, reference, err },
+        "Collection API call rejected; rolling back to awaiting_payment",
+      );
+      await applyCollectionWebhook({
+        orderId: order.id,
+        moolreReference: reference,
+        status: "failed",
+      });
+      throw new PaymentProviderRejectedError(
+        providerRejectionMessage(err, "payment"),
+      );
+    }
   }
 
   const [updated] = await db
@@ -219,11 +309,41 @@ export async function initiateOrderPayout(
         "Provider returned unexpected disbursement reference",
       );
     }
+
+    if (disburse.status === "failed") {
+      await applyDisbursementWebhook({
+        orderId: order.id,
+        moolreReference: reference,
+        status: "failed",
+      });
+      throw new PaymentProviderRejectedError(
+        "Payout could not be started. Please try again.",
+      );
+    }
   } catch (err) {
-    logger.error(
-      { orderId: order.id, reference, err },
-      "Disbursement API call failed; order left in payout_processing for reconciliation",
-    );
+    if (err instanceof PaymentProviderRejectedError) {
+      throw err;
+    }
+
+    if (isTransientProviderError(err)) {
+      logger.error(
+        { orderId: order.id, reference, err },
+        "Disbursement API call failed; order left in payout_processing for reconciliation",
+      );
+    } else {
+      logger.error(
+        { orderId: order.id, reference, err },
+        "Disbursement API call rejected; rolling back from payout_processing",
+      );
+      await applyDisbursementWebhook({
+        orderId: order.id,
+        moolreReference: reference,
+        status: "failed",
+      });
+      throw new PaymentProviderRejectedError(
+        providerRejectionMessage(err, "payout"),
+      );
+    }
   }
 
   const [updated] = await db

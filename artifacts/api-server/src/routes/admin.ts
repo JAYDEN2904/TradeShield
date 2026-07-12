@@ -26,6 +26,7 @@ import {
   initiateOrderPayout,
   initiateOrderRefund,
   PaymentInProgressError,
+  PaymentProviderRejectedError,
 } from "../lib/paymentOrchestration";
 import { logAdminAction } from "../lib/adminActions";
 import { fireAndForget, notifyDisputeResolved } from "../lib/orderNotifications";
@@ -199,8 +200,15 @@ router.post(
 
       res.json(updated);
     } catch (err) {
-      if (err instanceof PaymentInProgressError || err instanceof InvalidOrderTransitionError) {
+      if (
+        err instanceof PaymentInProgressError ||
+        err instanceof InvalidOrderTransitionError
+      ) {
         res.status(409).json({ error: err.message });
+        return;
+      }
+      if (err instanceof PaymentProviderRejectedError) {
+        res.status(502).json({ error: err.message });
         return;
       }
       if (err instanceof Error && err.message.includes("payout mobile money")) {
@@ -299,6 +307,10 @@ router.post(
     } catch (err) {
       if (err instanceof PaymentInProgressError || err instanceof InvalidOrderTransitionError) {
         res.status(409).json({ error: err.message });
+        return;
+      }
+      if (err instanceof PaymentProviderRejectedError) {
+        res.status(502).json({ error: err.message });
         return;
       }
       throw err;

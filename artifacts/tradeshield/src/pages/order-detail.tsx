@@ -86,7 +86,12 @@ export default function OrderDetail() {
     mutation: {
       onSuccess: () =>
         onMutateSuccess("Payment initiated — approve the prompt on your phone."),
-      onError,
+      onError: (err) => {
+        // Hard provider rejections roll the order back to awaiting_payment.
+        queryClient.invalidateQueries({ queryKey: getGetOrderQueryKey(orderId) });
+        queryClient.invalidateQueries({ queryKey: ["/orders"] });
+        onError(err);
+      },
     },
   });
   const shipMut = useShipOrder({

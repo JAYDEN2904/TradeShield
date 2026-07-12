@@ -40,6 +40,7 @@ import {
   initiateOrderCollection,
   initiateOrderPayout,
   PaymentInProgressError,
+  PaymentProviderRejectedError,
 } from "../lib/paymentOrchestration";
 import {
   fireAndForget,
@@ -415,6 +416,10 @@ router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
       res.status(409).json({ error: err.message });
       return;
     }
+    if (err instanceof PaymentProviderRejectedError) {
+      res.status(502).json({ error: err.message });
+      return;
+    }
     if (err instanceof InvalidOrderTransitionError) {
       res.status(409).json({ error: err.message });
       return;
@@ -528,6 +533,10 @@ router.post(
     } catch (err) {
       if (err instanceof PaymentInProgressError) {
         res.status(409).json({ error: err.message });
+        return;
+      }
+      if (err instanceof PaymentProviderRejectedError) {
+        res.status(502).json({ error: err.message });
         return;
       }
       if (err instanceof InvalidOrderTransitionError) {

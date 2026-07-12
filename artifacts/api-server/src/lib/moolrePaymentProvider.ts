@@ -53,9 +53,7 @@ export class MoolrePaymentProvider implements PaymentProvider {
         { status: httpStatus, code: body.code, text },
         "Moolre collection charge failed",
       );
-      throw new Error(
-        `Moolre collection failed (${httpStatus}): ${body.code ?? text.slice(0, 120)}`,
-      );
+      throw new Error(formatMoolreRejection("collection", httpStatus, body, text));
     }
 
     if (body.code === "TP14") {
@@ -99,9 +97,7 @@ export class MoolrePaymentProvider implements PaymentProvider {
         { status: httpStatus, code: body.code, text },
         "Moolre disbursement failed",
       );
-      throw new Error(
-        `Moolre disbursement failed (${httpStatus}): ${body.code ?? text.slice(0, 120)}`,
-      );
+      throw new Error(formatMoolreRejection("disbursement", httpStatus, body, text));
     }
 
     return {
@@ -172,8 +168,26 @@ export class MoolrePaymentProvider implements PaymentProvider {
         typeof data === "object" &&
         !Array.isArray(data) &&
         "txstatus" in (data as object);
-      // Not-found / error envelopes without txstatus stay pending
+      const code = (body.code ?? "").toUpperCase();
+      // Known not-found / invalid-ref codes mean the charge never landed.
+      // Reconciliation only polls after MIN_PENDING_AGE, so treating these as
+      // failed unsticks hard charge failures (e.g. TP04 → SS06 loop).
       if (!hasTxStatus) {
+        const messageText = Array.isArray(body.message)
+          ? body.message.join(" ")
+          : typeof body.message === "string"
+            ? body.message
+            : "";
+        const notFound =
+          code === "SS06" ||
+          /not\s*found/i.test(messageText);
+        if (notFound) {
+          logger.warn(
+            { reference, code: body.code, status: body.status },
+            "Moolre status poll not found — treating as failed",
+          );
+          return "failed";
+        }
         logger.warn(
           { reference, code: body.code, status: body.status },
           "Moolre status poll inconclusive — treating as pending",
@@ -184,6 +198,25 @@ export class MoolrePaymentProvider implements PaymentProvider {
 
     return interpreted;
   }
+}
+
+function formatMoolreRejection(
+  kind: "collection" | "disbursement",
+  httpStatus: number,
+  body: { code?: string; message?: string | string[] | null },
+  text: string,
+): string {
+  const code = body.code ?? "UNKNOWN";
+  const rawMessage = body.message;
+  const message = Array.isArray(rawMessage)
+    ? rawMessage.filter(Boolean).join("; ")
+    : typeof rawMessage === "string"
+      ? rawMessage.trim()
+      : "";
+  if (message) {
+    return `Moolre ${kind} failed (${httpStatus}): ${code} — ${message}`;
+  }
+  return `Moolre ${kind} failed (${httpStatus}): ${code || text.slice(0, 120)}`;
 }
 
 export type { MoolreCredentials as MoolrePaymentProviderConfig };
