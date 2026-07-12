@@ -83,10 +83,15 @@ export function SupplierTrustBadge({
             New Supplier
           </Badge>
         )}
-        <Badge variant="secondary" className="gap-1 font-normal">
-          <Star className="h-3.5 w-3.5 fill-cta text-cta" />
-          {ratingLabel}
-        </Badge>
+        {/* Skip redundant "New supplier" star label when the New Supplier badge already says it */}
+        {(stats?.averageRating != null ||
+          supplierAverageRating != null ||
+          !isNew) && (
+          <Badge variant="secondary" className="gap-1 font-normal">
+            <Star className="h-3.5 w-3.5 fill-cta text-cta" />
+            {ratingLabel}
+          </Badge>
+        )}
         <Badge variant="secondary" className="gap-1 font-normal">
           <ShieldCheck className="h-3.5 w-3.5 text-trust" />
           {trades} trade{trades === 1 ? "" : "s"}
