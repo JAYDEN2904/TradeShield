@@ -1,16 +1,27 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
   "installCommand": "npx --yes pnpm@11.2.2 install --frozen-lockfile",
-  "buildCommand": "npx --yes pnpm@11.2.2 --filter @workspace/tradeshield run build",
-  "outputDirectory": "artifacts/tradeshield/dist/public",
-  "rewrites": [
+  "builds": [
     {
-      "source": "/api/:path*",
-      "destination": "https://tradeshield-i76i.onrender.com"
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "artifacts/tradeshield/dist/public"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/api/(.*)",
+      "dest": "https://tradeshield-i76i.onrender.com/api/$1"
     },
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
   ]
 }
