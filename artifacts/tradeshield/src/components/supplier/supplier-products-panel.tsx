@@ -55,7 +55,12 @@ import type { CatalogProduct } from "@workspace/api-client-react";
 const productSchema = z.object({
   name: z.string().min(1, "Name is required"),
   category: z.string().min(1, "Category is required"),
-  unitPrice: z.string().min(1, "Price is required"),
+  unitPrice: z
+    .string()
+    .min(1, "Price is required")
+    .refine((v) => !Number.isNaN(Number(v)) && Number(v) >= 0, {
+      message: "Price cannot be negative",
+    }),
   moq: z.coerce.number().min(1),
   unit: z.string().min(1, "Unit is required"),
   stockQty: z.coerce.number().min(0),
@@ -396,7 +401,21 @@ export function SupplierProductsPanel() {
                     <FormItem>
                       <FormLabel>Unit price (GHS)</FormLabel>
                       <FormControl>
-                        <Input type="number" step="0.01" {...field} />
+                        <Input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          {...field}
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              field.onChange(raw);
+                              return;
+                            }
+                            const n = Number(raw);
+                            field.onChange(Number.isFinite(n) && n < 0 ? "0" : raw);
+                          }}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -422,7 +441,7 @@ export function SupplierProductsPanel() {
                     <FormItem>
                       <FormLabel>Minimum order quantity</FormLabel>
                       <FormControl>
-                        <Input type="number" {...field} />
+                        <Input type="number" min={1} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -435,7 +454,7 @@ export function SupplierProductsPanel() {
                     <FormItem>
                       <FormLabel>Available stock</FormLabel>
                       <FormControl>
-                        <Input type="number" {...field} />
+                        <Input type="number" min={0} {...field} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
