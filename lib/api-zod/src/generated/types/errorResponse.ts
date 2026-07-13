@@ -8,4 +8,6 @@
 
 export interface ErrorResponse {
   error: string;
+  /** Machine-readable error code (e.g. OTP_REQUIRED) */
+  code?: string;
 }

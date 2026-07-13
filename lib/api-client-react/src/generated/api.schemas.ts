@@ -11,6 +11,8 @@ export interface HealthStatus {
 
 export interface ErrorResponse {
   error: string;
+  /** Machine-readable error code (e.g. OTP_REQUIRED) */
+  code?: string;
 }
 
 export type UserRole = typeof UserRole[keyof typeof UserRole];
@@ -293,6 +295,27 @@ export interface OrderInput {
 export interface RejectOrderInput {
   /** @minLength 1 */
   reason?: string;
+}
+
+/**
+ * Mobile money network for the escrow collection
+ */
+export type MomoProvider = typeof MomoProvider[keyof typeof MomoProvider];
+
+
+export const MomoProvider = {
+  mtn: 'mtn',
+  telecel: 'telecel',
+  airteltigo: 'airteltigo',
+} as const;
+
+export interface PayOrderInput {
+  /** Required on the first pay attempt (not needed when only submitting otpCode if already stored) */
+  momoProvider?: MomoProvider;
+  /** MoMo wallet to charge (Ghana local or +233). Required on first pay attempt. */
+  momoNumber?: string;
+  /** SMS verification OTP when Moolre returns TP14 */
+  otpCode?: string;
 }
 
 export interface AdminMetrics {

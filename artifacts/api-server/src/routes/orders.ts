@@ -43,6 +43,8 @@ import {
   PaymentOtpRequiredError,
   PaymentProviderRejectedError,
 } from "../lib/paymentOrchestration";
+import { isMomoProvider } from "../lib/moolreClient";
+import { normalizeMomoNumber } from "../lib/phoneValidation";
 import {
   fireAndForget,
   notifyDisputeOpened,
@@ -393,6 +395,15 @@ router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
   const otpCode =
     typeof req.body?.otpCode === "string" ? req.body.otpCode.trim() : undefined;
 
+  const rawProvider =
+    typeof req.body?.momoProvider === "string"
+      ? req.body.momoProvider.trim().toLowerCase()
+      : undefined;
+  const momoProvider = rawProvider && isMomoProvider(rawProvider) ? rawProvider : undefined;
+
+  const rawMomoNumber =
+    typeof req.body?.momoNumber === "string" ? req.body.momoNumber.trim() : undefined;
+
   const [order] = await db
     .select()
     .from(ordersTable)
@@ -408,12 +419,48 @@ router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  let payerPhone: string | null = null;
+  if (rawMomoNumber) {
+    payerPhone = normalizeMomoNumber(rawMomoNumber);
+    if (!payerPhone) {
+      res.status(400).json({ error: "Enter a valid Ghana mobile money number." });
+      return;
+    }
+  } else {
+    payerPhone = order.paymentMomoNumber;
+  }
+
+  if (!otpCode) {
+    if (!momoProvider && !(order.paymentMomoProvider && isMomoProvider(order.paymentMomoProvider))) {
+      res.status(400).json({
+        error: "Select a mobile money provider (MTN, Telecel, or AirtelTigo).",
+      });
+      return;
+    }
+    if (!payerPhone) {
+      res.status(400).json({ error: "Enter a valid Ghana mobile money number." });
+      return;
+    }
+  } else if (!payerPhone) {
+    res.status(400).json({
+      error: "Payment number missing. Start payment again and enter your MoMo number.",
+    });
+    return;
+  }
+
   try {
     const updated = await initiateOrderCollection(
       order,
-      req.currentUser!.phone,
+      payerPhone,
       "buyer",
-      { otpCode: otpCode || undefined },
+      {
+        otpCode: otpCode || undefined,
+        momoProvider:
+          momoProvider ||
+          (order.paymentMomoProvider && isMomoProvider(order.paymentMomoProvider)
+            ? order.paymentMomoProvider
+            : undefined),
+      },
     );
     res.json(updated);
   } catch (err) {

@@ -24,6 +24,9 @@ import {
 } from "./paymentErrors";
 import { applyCollectionWebhook, applyDisbursementWebhook } from "./webhookHandlers";
 import { logger } from "./logger";
+import type { MomoProvider } from "./moolreClient";
+import { isMomoProvider } from "./moolreClient";
+import { normalizeMomoNumber } from "./phoneValidation";
 
 export {
   PaymentInProgressError,
@@ -148,7 +151,7 @@ export async function initiateOrderCollection(
   order: Order,
   payerPhone: string,
   actor: TransitionActor = "buyer",
-  options?: { otpCode?: string },
+  options?: { otpCode?: string; momoProvider?: MomoProvider },
 ): Promise<Order> {
   if (order.status === "payment_processing") {
     const pending = await hasPendingCollection(order.id);
@@ -160,6 +163,25 @@ export async function initiateOrderCollection(
   }
 
   const otpCode = options?.otpCode?.trim() || undefined;
+  const momoProvider =
+    options?.momoProvider ??
+    (order.paymentMomoProvider && isMomoProvider(order.paymentMomoProvider)
+      ? order.paymentMomoProvider
+      : undefined);
+
+  if (!momoProvider) {
+    throw new PaymentProviderRejectedError(
+      "Select a mobile money provider (MTN, Telecel, or AirtelTigo).",
+    );
+  }
+
+  const normalizedPayer = normalizeMomoNumber(payerPhone);
+  if (!normalizedPayer) {
+    throw new PaymentProviderRejectedError(
+      "Enter a valid Ghana mobile money number.",
+    );
+  }
+
   let reference: string;
 
   if (otpCode) {
@@ -197,7 +219,11 @@ export async function initiateOrderCollection(
         .where(eq(transactionsTable.id, lastCollection.id));
       await tx
         .update(ordersTable)
-        .set({ status: nextStatus })
+        .set({
+          status: nextStatus,
+          paymentMomoNumber: normalizedPayer,
+          paymentMomoProvider: momoProvider,
+        })
         .where(eq(ordersTable.id, order.id));
     });
   } else {
@@ -220,7 +246,11 @@ export async function initiateOrderCollection(
       });
       await tx
         .update(ordersTable)
-        .set({ status: nextStatus })
+        .set({
+          status: nextStatus,
+          paymentMomoNumber: normalizedPayer,
+          paymentMomoProvider: momoProvider,
+        })
         .where(eq(ordersTable.id, order.id));
     });
   }
@@ -229,7 +259,8 @@ export async function initiateOrderCollection(
     const charge = await paymentProvider.charge({
       orderId: order.id,
       amount: order.totalAmount,
-      payerPhone,
+      payerPhone: normalizedPayer,
+      momoProvider,
       reference,
       otpCode,
     });
@@ -496,11 +527,14 @@ export async function initiateOrderRefund(
         .where(eq(usersTable.id, order.buyerId))
         .limit(1);
 
+      const recipientPhone =
+        order.paymentMomoNumber?.trim() || buyer?.phone || undefined;
+
       const refund = await paymentProvider.refund({
         orderId: order.id,
         amount: refundAmount,
         reference,
-        recipientPhone: buyer?.phone,
+        recipientPhone,
       });
 
       if (refund.status === "succeeded") {

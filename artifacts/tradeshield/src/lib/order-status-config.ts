@@ -39,7 +39,7 @@ export const ORDER_STATUS_CONFIG: Record<OrderStatusType, OrderStatusVisual> = {
   [OrderStatus.awaiting_payment]: {
     label: "Awaiting Payment",
     shortLabel: "Pay Now",
-    description: "Supplier confirmed. Complete payment to secure funds in escrow.",
+    description: "Supplier confirmed. Choose your MoMo network and pay into escrow.",
     icon: Wallet,
     badgeClass:
       "bg-slate-100 text-slate-800 ring-1 ring-slate-200/80 dark:bg-slate-800/60 dark:text-slate-200 dark:ring-slate-700/60",

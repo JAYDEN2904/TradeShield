@@ -603,11 +603,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                otpCode:
-                  type: string
-                  description: SMS verification OTP when Moolre returns TP14
+              $ref: "#/components/schemas/PayOrderInput"
       responses:
         "200":
           description: Order moved to payment_processing; webhook/polling resolves to in_escrow
@@ -1746,6 +1742,24 @@ components:
         reason:
           type: string
           minLength: 1
+
+    MomoProvider:
+      type: string
+      enum: [mtn, telecel, airteltigo]
+      description: Mobile money network for the escrow collection
+
+    PayOrderInput:
+      type: object
+      properties:
+        momoProvider:
+          $ref: "#/components/schemas/MomoProvider"
+          description: Required on the first pay attempt (not needed when only submitting otpCode if already stored)
+        momoNumber:
+          type: string
+          description: MoMo wallet to charge (Ghana local or +233). Required on first pay attempt.
+        otpCode:
+          type: string
+          description: SMS verification OTP when Moolre returns TP14
 
     AdminMetrics:
       type: object

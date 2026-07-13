@@ -8,6 +8,7 @@
 
 import { MoolrePaymentProvider } from "./moolrePaymentProvider";
 import { resolveMoolreCredentials } from "./moolreConfig";
+import type { MomoProvider } from "./moolreClient";
 
 export type ProviderTransactionStatus = "pending" | "succeeded" | "failed";
 
@@ -15,6 +16,8 @@ export interface ChargeRequest {
   orderId: number;
   amount: string;
   payerPhone: string;
+  /** Explicit MoMo network — preferred over inferring from phone prefix. */
+  momoProvider?: MomoProvider;
   /** Platform-generated reference — stored in DB before the API call. */
   reference: string;
   /** Moolre TP14 phone-verification OTP, when required. */

@@ -839,10 +839,16 @@ export const RejectOrderResponse = zod.object({
 
 
 /**
- * @summary Buyer initiates escrow payment (mock Moolre Collections charge)
+ * @summary Buyer initiates escrow payment (Moolre Collections charge)
  */
 export const PayOrderParams = zod.object({
   "id": zod.coerce.number()
+})
+
+export const PayOrderBody = zod.object({
+  "momoProvider": zod.enum(['mtn', 'telecel', 'airteltigo']).optional().describe('Required on the first pay attempt (not needed when only submitting otpCode if already stored)'),
+  "momoNumber": zod.string().optional().describe('MoMo wallet to charge (Ghana local or +233). Required on first pay attempt.'),
+  "otpCode": zod.string().optional().describe('SMS verification OTP when Moolre returns TP14')
 })
 
 export const PayOrderResponse = zod.object({

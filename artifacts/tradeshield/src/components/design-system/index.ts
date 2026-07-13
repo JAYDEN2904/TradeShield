@@ -5,6 +5,7 @@ export { EscrowExplainer } from "./escrow-explainer";
 export { OrderActionPanel } from "./order-action-panel";
 export { OrderTimeline } from "./order-timeline";
 export { PageHeader } from "./page-header";
+export { PayEscrowDialog } from "./pay-escrow-dialog";
 export { ProcessingBanner } from "./processing-banner";
 export { RejectOrderDialog } from "./reject-order-dialog";
 export { VerifiedBadge } from "./verified-badge";

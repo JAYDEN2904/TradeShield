@@ -152,7 +152,7 @@ export function OrderActionPanel({
               onClick={onPay}
               disabled={isPaying}
             >
-              Pay {formatGhs(order.totalAmount)} to escrow
+              Pay {formatGhs(order.totalAmount)} with MoMo
             </Button>
           </ActionGroup>
         )}

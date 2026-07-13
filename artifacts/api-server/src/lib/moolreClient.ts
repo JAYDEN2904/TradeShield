@@ -9,6 +9,7 @@ import type { MoolreCredentials } from "./moolreConfig";
 
 export type MoolreAuthMode = "private" | "public" | "vas";
 export type MoolreChannelPurpose = "payment" | "transfer";
+export type MomoProvider = "mtn" | "telecel" | "airteltigo";
 
 export type MoolreApiResponse = {
   status?: number | string;
@@ -17,6 +18,43 @@ export type MoolreApiResponse = {
   data?: unknown;
   go?: unknown;
 };
+
+export function channelForMomoProvider(
+  provider: MomoProvider,
+  purpose: MoolreChannelPurpose,
+): string {
+  switch (provider) {
+    case "telecel":
+      return "6";
+    case "airteltigo":
+      return "7";
+    case "mtn":
+      return purpose === "payment" ? "13" : "1";
+    default: {
+      const _exhaustive: never = provider;
+      return _exhaustive;
+    }
+  }
+}
+
+export function isMomoProvider(value: string): value is MomoProvider {
+  return value === "mtn" || value === "telecel" || value === "airteltigo";
+}
+
+/** Infer network from Ghana MoMo number prefixes when the buyer does not pick one. */
+export function inferMomoProvider(phone: string): MomoProvider {
+  const normalized = normalizeGhanaPhone(phone);
+  if (!normalized) return "mtn";
+
+  const local = `0${normalized.slice(4)}`;
+  const prefix = local.slice(0, 3);
+
+  if (prefix === "020" || prefix === "050") return "telecel";
+  if (prefix === "026" || prefix === "027" || prefix === "056" || prefix === "057") {
+    return "airteltigo";
+  }
+  return "mtn";
+}
 
 /** International digits for SMS / legacy callers, e.g. 233241234567 */
 export function toMoolreMsisdn(phone: string): string {
@@ -54,25 +92,16 @@ export function toMoolreLocalPhone(phone: string): string {
 export function resolveMomoChannel(
   phone: string,
   purpose: MoolreChannelPurpose = "transfer",
+  provider?: MomoProvider,
 ): string {
   const envDefault = process.env.MOOLRE_DEFAULT_MOMO_CHANNEL?.trim();
   if (envDefault) return envDefault;
 
-  const normalized = normalizeGhanaPhone(phone);
-  const mtnDefault = purpose === "payment" ? "13" : "1";
-  if (!normalized) return mtnDefault;
-
-  const local = `0${normalized.slice(4)}`;
-  const prefix = local.slice(0, 3);
-
-  // Telecel (Vodafone)
-  if (prefix === "020" || prefix === "050") return "6";
-  // AT (AirtelTigo)
-  if (prefix === "026" || prefix === "027" || prefix === "056" || prefix === "057") {
-    return "7";
+  if (provider) {
+    return channelForMomoProvider(provider, purpose);
   }
-  // MTN (024, 054, 055, 059, 025, 053, …)
-  return mtnDefault;
+
+  return channelForMomoProvider(inferMomoProvider(phone), purpose);
 }
 
 export function buildMoolreHeaders(

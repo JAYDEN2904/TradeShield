@@ -25,7 +25,9 @@ import {
   OrderTimeline,
   OrderActionPanel,
   PageHeader,
+  PayEscrowDialog,
 } from "@/components/design-system";
+import type { PayEscrowPayload } from "@/components/design-system/pay-escrow-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -55,8 +57,12 @@ export default function OrderDetail() {
   const [isRatingOpen, setIsRatingOpen] = useState(false);
   const [ratingStars, setRatingStars] = useState(5);
   const [ratingComment, setRatingComment] = useState("");
+  const [isPayOpen, setIsPayOpen] = useState(false);
   const [isOtpOpen, setIsOtpOpen] = useState(false);
   const [paymentOtp, setPaymentOtp] = useState("");
+  const [pendingPayment, setPendingPayment] = useState<PayEscrowPayload | null>(
+    null,
+  );
 
   const { data: order, isLoading } = useGetOrder(orderId, {
     query: {
@@ -106,6 +112,7 @@ export default function OrderDetail() {
   const payMut = usePayOrder({
     mutation: {
       onSuccess: () => {
+        setIsPayOpen(false);
         setIsOtpOpen(false);
         setPaymentOtp("");
         onMutateSuccess("Payment initiated — approve the prompt on your phone.");
@@ -115,6 +122,7 @@ export default function OrderDetail() {
         queryClient.invalidateQueries({ queryKey: getGetOrderQueryKey(orderId) });
         queryClient.invalidateQueries({ queryKey: ["/orders"] });
         if (isOtpRequiredError(err)) {
+          setIsPayOpen(false);
           setIsOtpOpen(true);
           toast({
             title: "Verification required",
@@ -132,6 +140,18 @@ export default function OrderDetail() {
       },
     },
   });
+
+  const submitPayment = (payload: PayEscrowPayload, otpCode?: string) => {
+    setPendingPayment(payload);
+    payMut.mutate({
+      id: orderId,
+      data: {
+        momoProvider: payload.momoProvider,
+        momoNumber: payload.momoNumber,
+        ...(otpCode ? { otpCode } : {}),
+      },
+    });
+  };
   const shipMut = useShipOrder({
     mutation: {
       onSuccess: () => onMutateSuccess("Order marked as shipped."),
@@ -398,7 +418,7 @@ export default function OrderDetail() {
                 data: reason ? { reason } : undefined,
               })
             }
-            onPay={() => payMut.mutate({ id: orderId })}
+            onPay={() => setIsPayOpen(true)}
             onShip={() => shipMut.mutate({ id: orderId })}
             onConfirm={() => confirmMut.mutate({ id: orderId })}
             onDispute={() =>
@@ -428,7 +448,7 @@ export default function OrderDetail() {
           isBuyer={!!isBuyer}
           isSupplier={!!isSupplier}
           onAccept={() => acceptMut.mutate({ id: orderId })}
-          onPay={() => payMut.mutate({ id: orderId })}
+          onPay={() => setIsPayOpen(true)}
           onShip={() => shipMut.mutate({ id: orderId })}
           onConfirm={() => confirmMut.mutate({ id: orderId })}
           isAccepting={acceptMut.isPending}
@@ -437,6 +457,15 @@ export default function OrderDetail() {
           isConfirming={confirmMut.isPending}
         />
       </div>
+
+      <PayEscrowDialog
+        open={isPayOpen}
+        onOpenChange={setIsPayOpen}
+        amount={order.totalAmount}
+        defaultPhone={user?.phone}
+        isPaying={payMut.isPending}
+        onSubmit={(payload) => submitPayment(payload)}
+      />
 
       <Dialog open={isOtpOpen} onOpenChange={setIsOtpOpen}>
         <DialogContent>
@@ -468,13 +497,11 @@ export default function OrderDetail() {
             </Button>
             <Button
               variant="cta"
-              disabled={!paymentOtp.trim() || payMut.isPending}
-              onClick={() =>
-                payMut.mutate({
-                  id: orderId,
-                  data: { otpCode: paymentOtp.trim() },
-                })
-              }
+              disabled={!paymentOtp.trim() || payMut.isPending || !pendingPayment}
+              onClick={() => {
+                if (!pendingPayment) return;
+                submitPayment(pendingPayment, paymentOtp.trim());
+              }}
             >
               {payMut.isPending ? "Verifying…" : "Continue payment"}
             </Button>
@@ -562,7 +589,7 @@ function MobileActionBar({
         onClick={onPay}
         disabled={isPaying}
       >
-        Pay {formatGhs(order.totalAmount)} to escrow
+        Pay {formatGhs(order.totalAmount)} with MoMo
       </button>
     );
   }

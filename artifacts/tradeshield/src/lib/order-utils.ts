@@ -61,7 +61,7 @@ export function getOrderActionHint(order: Order, userId: number): string | null 
     case OrderStatus.pending_supplier_confirmation:
       return isSupplier ? "Confirm or reject this order" : "Waiting for supplier";
     case OrderStatus.awaiting_payment:
-      return isBuyer ? "Pay to secure funds in escrow" : "Waiting for buyer payment";
+      return isBuyer ? "Choose MoMo network and pay to escrow" : "Waiting for buyer payment";
     case OrderStatus.payment_processing:
       return isBuyer ? "Approve payment on your phone" : "Buyer payment processing";
     case OrderStatus.in_escrow:

@@ -68,6 +68,10 @@ export const ordersTable = pgTable("orders", {
     .default(false),
   /** Optional photo URL attached by buyer at confirm-receipt. */
   confirmPhotoUrl: text("confirm_photo_url"),
+  /** MoMo number used for the buyer's escrow collection (may differ from account phone). */
+  paymentMomoNumber: text("payment_momo_number"),
+  /** Network selected at pay time: mtn | telecel | airteltigo */
+  paymentMomoProvider: text("payment_momo_provider"),
 });
 
 export const insertOrderSchema = createInsertSchema(ordersTable).omit({

@@ -28,7 +28,11 @@ export class MoolrePaymentProvider implements PaymentProvider {
 
   async charge(request: ChargeRequest): Promise<ChargeResult> {
     const payer = toMoolreLocalPhone(request.payerPhone);
-    const channel = resolveMomoChannel(request.payerPhone, "payment");
+    const channel = resolveMomoChannel(
+      request.payerPhone,
+      "payment",
+      request.momoProvider,
+    );
     const otpcode = request.otpCode?.trim() ?? "";
 
     const { ok, httpStatus, body, text } = await moolreFetch(
