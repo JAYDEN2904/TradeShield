@@ -11,6 +11,7 @@
     "db:down": "docker compose down",
     "db:push": "DATABASE_URL=postgresql://postgres:postgres@localhost:5433/tradeshield pnpm --filter @workspace/db run push",
     "db:kyc": "psql postgresql://postgres:postgres@localhost:5433/tradeshield -f lib/db/drizzle/apply_kyc_only.sql",
+    "db:payment-momo": "psql postgresql://postgres:postgres@localhost:5433/tradeshield -f lib/db/drizzle/apply_payment_momo.sql",
     "db:seed": "DATABASE_URL=postgresql://postgres:postgres@localhost:5433/tradeshield pnpm --filter @workspace/scripts run seed:tradeshield",
     "setup": "pnpm db:up && sleep 3 && pnpm db:push && pnpm db:seed",
     "build": "pnpm run typecheck && pnpm -r --if-present run build",

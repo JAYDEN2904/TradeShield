@@ -225,25 +225,39 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
-  const [order] = await db
-    .insert(ordersTable)
-    .values({
-      buyerId: req.currentUser!.id,
-      supplierId: product.supplierId,
-      productId: product.id,
-      quantity: parsed.data.quantity,
-      totalAmount,
-      platformFee,
-      status: "pending_supplier_confirmation",
-      deliveryLocation: parsed.data.deliveryLocation,
-      preferredDeliveryDate,
-      expiresAt: new Date(Date.now() + PENDING_EXPIRY_MS),
-    })
-    .returning();
+  let order: Order;
+  try {
+    const [created] = await db
+      .insert(ordersTable)
+      .values({
+        buyerId: req.currentUser!.id,
+        supplierId: product.supplierId,
+        productId: product.id,
+        quantity: parsed.data.quantity,
+        totalAmount,
+        platformFee,
+        status: "pending_supplier_confirmation",
+        deliveryLocation: parsed.data.deliveryLocation,
+        preferredDeliveryDate,
+        expiresAt: new Date(Date.now() + PENDING_EXPIRY_MS),
+      })
+      .returning();
 
-  if (!order) {
-    res.status(500).json({ error: "Failed to create order" });
-    return;
+    if (!created) {
+      res.status(500).json({ error: "Failed to create order" });
+      return;
+    }
+    order = created;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/payment_momo_/i.test(message) || /column .* does not exist/i.test(message)) {
+      res.status(500).json({
+        error:
+          "Database is missing payment columns. Apply lib/db/drizzle/apply_payment_momo.sql and retry.",
+      });
+      return;
+    }
+    throw err;
   }
 
   fireAndForget(notifyOrderCreated(order), "order_created");
