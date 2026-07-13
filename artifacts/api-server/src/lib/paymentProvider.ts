@@ -25,6 +25,11 @@ export interface ChargeResult {
   reference: string;
   status: ProviderTransactionStatus;
   providerTransactionId?: string;
+  /**
+   * OTP was accepted but Moolre did not start a MoMo/USSD collection.
+   * Caller should start a fresh collection without OTP.
+   */
+  needsFollowUpCollection?: boolean;
 }
 
 export interface DisburseRequest {

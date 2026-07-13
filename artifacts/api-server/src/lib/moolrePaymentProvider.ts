@@ -50,6 +50,23 @@ export class MoolrePaymentProvider implements PaymentProvider {
       },
     );
 
+    logger.info(
+      {
+        orderId: request.orderId,
+        reference: request.reference,
+        hadOtp: Boolean(otpcode),
+        httpStatus,
+        code: body.code,
+        status: body.status,
+        dataType: Array.isArray(body.data)
+          ? "array"
+          : body.data === null
+            ? "null"
+            : typeof body.data,
+      },
+      "Moolre collection charge response",
+    );
+
     if (body.code === "TP14") {
       logger.warn(
         {
@@ -89,10 +106,37 @@ export class MoolrePaymentProvider implements PaymentProvider {
       throw new Error(formatMoolreRejection("collection", httpStatus, body, text));
     }
 
+    const providerTransactionId = extractProviderTransactionId(body);
+    const status = interpretMoolreTransactionResponse(body);
+
+    // OTP verify can succeed without starting USSD (no TR099 / no provider id).
+    // Signal orchestration to start a fresh collection now that the phone is verified.
+    if (
+      otpcode &&
+      status === "pending" &&
+      body.code !== "TR099" &&
+      !providerTransactionId
+    ) {
+      logger.warn(
+        {
+          orderId: request.orderId,
+          reference: request.reference,
+          code: body.code,
+        },
+        "Moolre accepted OTP but did not start USSD; follow-up collection required",
+      );
+      return {
+        reference: request.reference,
+        status: "pending",
+        providerTransactionId,
+        needsFollowUpCollection: true,
+      };
+    }
+
     return {
       reference: request.reference,
-      status: interpretMoolreTransactionResponse(body),
-      providerTransactionId: extractProviderTransactionId(body),
+      status,
+      providerTransactionId,
     };
   }
 
@@ -171,7 +215,8 @@ export class MoolrePaymentProvider implements PaymentProvider {
         authMode,
         body: {
           type: 1,
-          idtype: "externalref",
+          // Docs: 1 = externalref, 2 = Moolre-generated id (NOT the string "externalref")
+          idtype: "1",
           id: reference,
           accountnumber: this.creds.accountNumber,
         },
@@ -186,40 +231,37 @@ export class MoolrePaymentProvider implements PaymentProvider {
       return "pending";
     }
 
+    const code = (body.code ?? "").toUpperCase();
+    const messageText = Array.isArray(body.message)
+      ? body.message.join(" ")
+      : typeof body.message === "string"
+        ? body.message
+        : "";
+
+    // SS07 is returned even with status=1 when the externalref has no payment.
+    if (code === "SS07" || /transaction not found/i.test(messageText)) {
+      logger.warn(
+        { reference, code: body.code, status: body.status, message: messageText },
+        "Moolre status poll not found — treating as failed",
+      );
+      return "failed";
+    }
+
+    if (/idtype invalid/i.test(messageText)) {
+      logger.warn(
+        { reference, code: body.code, message: messageText },
+        "Moolre status poll misconfigured — treating as pending",
+      );
+      return "pending";
+    }
+
     const interpreted = interpretMoolreTransactionResponse(body);
     if (!ok && interpreted === "failed") {
-      const data = body.data;
-      const hasTxStatus =
-        data &&
-        typeof data === "object" &&
-        !Array.isArray(data) &&
-        "txstatus" in (data as object);
-      const code = (body.code ?? "").toUpperCase();
-      // Known not-found / invalid-ref codes mean the charge never landed.
-      // Reconciliation only polls after MIN_PENDING_AGE, so treating these as
-      // failed unsticks hard charge failures (e.g. TP04 → SS06 loop).
-      if (!hasTxStatus) {
-        const messageText = Array.isArray(body.message)
-          ? body.message.join(" ")
-          : typeof body.message === "string"
-            ? body.message
-            : "";
-        const notFound =
-          code === "SS06" ||
-          /not\s*found/i.test(messageText);
-        if (notFound) {
-          logger.warn(
-            { reference, code: body.code, status: body.status },
-            "Moolre status poll not found — treating as failed",
-          );
-          return "failed";
-        }
-        logger.warn(
-          { reference, code: body.code, status: body.status },
-          "Moolre status poll inconclusive — treating as pending",
-        );
-        return "pending";
-      }
+      logger.warn(
+        { reference, code: body.code, status: body.status, message: messageText },
+        "Moolre status poll inconclusive — treating as pending",
+      );
+      return "pending";
     }
 
     return interpreted;
