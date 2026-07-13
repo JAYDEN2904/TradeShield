@@ -1,4 +1,4 @@
-import { eq, and, count } from "drizzle-orm";
+import { eq, and, count, desc } from "drizzle-orm";
 import {
   db,
   ordersTable,
@@ -60,6 +60,10 @@ function providerRejectionMessage(err: unknown, kind: "payment" | "payout"): str
   if (dashIdx >= 0) {
     const detail = err.message.slice(dashIdx + 3).trim();
     if (detail) {
+      // TP15 invalid OTP — keep the provider wording without the generic prefix noise.
+      if (/verification code/i.test(detail) || /otp/i.test(detail)) {
+        return detail;
+      }
       return kind === "payment"
         ? `Payment could not be started: ${detail}`
         : `Payout could not be started: ${detail}`;
@@ -155,28 +159,71 @@ export async function initiateOrderCollection(
     }
   }
 
-  const attempt = await nextCollectionAttempt(order.id);
-  const reference = buildCollectionReference(order.id, attempt);
+  const otpCode = options?.otpCode?.trim() || undefined;
+  let reference: string;
 
-  const nextStatus = applyTransition(
-    order.status,
-    "payment_processing",
-    actor,
-  );
+  if (otpCode) {
+    // Moolre binds the SMS OTP to the original externalref. Reuse the latest
+    // collection reference instead of minting a new one (which re-triggers TP14).
+    const [lastCollection] = await db
+      .select()
+      .from(transactionsTable)
+      .where(
+        and(
+          eq(transactionsTable.orderId, order.id),
+          eq(transactionsTable.type, "collection"),
+        ),
+      )
+      .orderBy(desc(transactionsTable.createdAt))
+      .limit(1);
 
-  await db.transaction(async (tx) => {
-    await tx.insert(transactionsTable).values({
-      orderId: order.id,
-      type: "collection",
-      moolreReference: reference,
-      status: "pending",
-      amount: order.totalAmount,
+    if (!lastCollection?.moolreReference) {
+      throw new PaymentProviderRejectedError(
+        "No verification in progress. Tap Pay again to receive a new SMS code.",
+      );
+    }
+
+    reference = lastCollection.moolreReference;
+    const nextStatus = applyTransition(
+      order.status,
+      "payment_processing",
+      actor,
+    );
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(transactionsTable)
+        .set({ status: "pending" })
+        .where(eq(transactionsTable.id, lastCollection.id));
+      await tx
+        .update(ordersTable)
+        .set({ status: nextStatus })
+        .where(eq(ordersTable.id, order.id));
     });
-    await tx
-      .update(ordersTable)
-      .set({ status: nextStatus })
-      .where(eq(ordersTable.id, order.id));
-  });
+  } else {
+    const attempt = await nextCollectionAttempt(order.id);
+    reference = buildCollectionReference(order.id, attempt);
+
+    const nextStatus = applyTransition(
+      order.status,
+      "payment_processing",
+      actor,
+    );
+
+    await db.transaction(async (tx) => {
+      await tx.insert(transactionsTable).values({
+        orderId: order.id,
+        type: "collection",
+        moolreReference: reference,
+        status: "pending",
+        amount: order.totalAmount,
+      });
+      await tx
+        .update(ordersTable)
+        .set({ status: nextStatus })
+        .where(eq(ordersTable.id, order.id));
+    });
+  }
 
   try {
     const charge = await paymentProvider.charge({
@@ -184,7 +231,7 @@ export async function initiateOrderCollection(
       amount: order.totalAmount,
       payerPhone,
       reference,
-      otpCode: options?.otpCode,
+      otpCode,
     });
 
     if (charge.reference !== reference) {
@@ -212,7 +259,11 @@ export async function initiateOrderCollection(
 
     if (err instanceof PaymentOtpRequiredError) {
       logger.warn(
-        { orderId: order.id, reference },
+        {
+          orderId: order.id,
+          reference,
+          hadOtp: Boolean(otpCode),
+        },
         "Collection requires OTP verification; rolling back to awaiting_payment",
       );
       await applyCollectionWebhook({

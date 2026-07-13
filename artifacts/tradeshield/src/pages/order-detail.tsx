@@ -119,9 +119,14 @@ export default function OrderDetail() {
           toast({
             title: "Verification required",
             description:
-              "Moolre sent a code to your phone by SMS. Enter it below to continue payment.",
+              "Moolre sent a code to your phone by SMS. Enter the latest code to continue payment.",
           });
           return;
+        }
+        // Keep the OTP dialog open on invalid-code errors so the buyer can retry.
+        const message = getErrorMessage(err, "Action failed");
+        if (/verification code/i.test(message) || /otp/i.test(message)) {
+          setIsOtpOpen(true);
         }
         onError(err);
       },
@@ -438,8 +443,8 @@ export default function OrderDetail() {
           <DialogHeader>
             <DialogTitle>Enter verification code</DialogTitle>
             <DialogDescription>
-              Moolre sent an SMS code to your phone. Enter it to start the mobile
-              money payment prompt.
+              Use the most recent SMS code from Moolre. After it verifies, you
+              should get a mobile money prompt to enter your PIN.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">

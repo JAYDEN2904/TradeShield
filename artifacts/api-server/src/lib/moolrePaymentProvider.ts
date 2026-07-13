@@ -52,7 +52,11 @@ export class MoolrePaymentProvider implements PaymentProvider {
 
     if (body.code === "TP14") {
       logger.warn(
-        { orderId: request.orderId, reference: request.reference },
+        {
+          orderId: request.orderId,
+          reference: request.reference,
+          hadOtp: Boolean(otpcode),
+        },
         "Moolre requires OTP verification (TP14) before payment can proceed",
       );
       const rawMessage = body.message;
@@ -64,6 +68,16 @@ export class MoolrePaymentProvider implements PaymentProvider {
       throw new PaymentOtpRequiredError(
         detail ||
           "Enter the verification code sent to your phone by SMS, then try again.",
+      );
+    }
+
+    if (body.code === "TP15") {
+      logger.warn(
+        { orderId: request.orderId, reference: request.reference },
+        "Moolre rejected OTP verification code (TP15)",
+      );
+      throw new Error(
+        formatMoolreRejection("collection", httpStatus, body, text),
       );
     }
 
