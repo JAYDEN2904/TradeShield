@@ -40,6 +40,7 @@ import {
   initiateOrderCollection,
   initiateOrderPayout,
   PaymentInProgressError,
+  PaymentOtpRequiredError,
   PaymentProviderRejectedError,
 } from "../lib/paymentOrchestration";
 import {
@@ -389,6 +390,9 @@ router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const otpCode =
+    typeof req.body?.otpCode === "string" ? req.body.otpCode.trim() : undefined;
+
   const [order] = await db
     .select()
     .from(ordersTable)
@@ -409,11 +413,16 @@ router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
       order,
       req.currentUser!.phone,
       "buyer",
+      { otpCode: otpCode || undefined },
     );
     res.json(updated);
   } catch (err) {
     if (err instanceof PaymentInProgressError) {
       res.status(409).json({ error: err.message });
+      return;
+    }
+    if (err instanceof PaymentOtpRequiredError) {
+      res.status(428).json({ error: err.message, code: "OTP_REQUIRED" });
       return;
     }
     if (err instanceof PaymentProviderRejectedError) {

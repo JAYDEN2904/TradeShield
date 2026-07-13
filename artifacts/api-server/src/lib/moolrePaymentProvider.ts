@@ -8,6 +8,7 @@ import type {
   RefundRequest,
   RefundResult,
 } from "./paymentProvider";
+import { PaymentOtpRequiredError } from "./paymentErrors";
 import type { MoolreCredentials } from "./moolreConfig";
 import {
   extractProviderTransactionId,
@@ -28,6 +29,7 @@ export class MoolrePaymentProvider implements PaymentProvider {
   async charge(request: ChargeRequest): Promise<ChargeResult> {
     const payer = toMoolreLocalPhone(request.payerPhone);
     const channel = resolveMomoChannel(request.payerPhone, "payment");
+    const otpcode = request.otpCode?.trim() ?? "";
 
     const { ok, httpStatus, body, text } = await moolreFetch(
       this.creds,
@@ -40,7 +42,7 @@ export class MoolrePaymentProvider implements PaymentProvider {
           payer,
           amount: String(request.amount),
           externalref: request.reference,
-          otpcode: "",
+          otpcode,
           reference: `Order #${request.orderId} escrow payment`,
           sessionid: "",
           accountnumber: this.creds.accountNumber,
@@ -48,19 +50,29 @@ export class MoolrePaymentProvider implements PaymentProvider {
       },
     );
 
-    if (!ok && body.code !== "TR099" && body.code !== "TP14") {
-      logger.error(
-        { status: httpStatus, code: body.code, text },
-        "Moolre collection charge failed",
-      );
-      throw new Error(formatMoolreRejection("collection", httpStatus, body, text));
-    }
-
     if (body.code === "TP14") {
       logger.warn(
         { orderId: request.orderId, reference: request.reference },
         "Moolre requires OTP verification (TP14) before payment can proceed",
       );
+      const rawMessage = body.message;
+      const detail = Array.isArray(rawMessage)
+        ? rawMessage.filter(Boolean).join("; ")
+        : typeof rawMessage === "string"
+          ? rawMessage.trim()
+          : "";
+      throw new PaymentOtpRequiredError(
+        detail ||
+          "Enter the verification code sent to your phone by SMS, then try again.",
+      );
+    }
+
+    if (!ok && body.code !== "TR099") {
+      logger.error(
+        { status: httpStatus, code: body.code, text },
+        "Moolre collection charge failed",
+      );
+      throw new Error(formatMoolreRejection("collection", httpStatus, body, text));
     }
 
     return {

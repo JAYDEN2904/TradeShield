@@ -17,23 +17,19 @@ import {
   buildRefundReference,
 } from "./paymentReferences";
 import { paymentProvider } from "./paymentProvider";
+import {
+  PaymentInProgressError,
+  PaymentOtpRequiredError,
+  PaymentProviderRejectedError,
+} from "./paymentErrors";
 import { applyCollectionWebhook, applyDisbursementWebhook } from "./webhookHandlers";
 import { logger } from "./logger";
 
-export class PaymentInProgressError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PaymentInProgressError";
-  }
-}
-
-/** Provider rejected the charge/payout synchronously — order was rolled back. */
-export class PaymentProviderRejectedError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "PaymentProviderRejectedError";
-  }
-}
+export {
+  PaymentInProgressError,
+  PaymentOtpRequiredError,
+  PaymentProviderRejectedError,
+};
 
 function isTransientProviderError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
@@ -148,6 +144,7 @@ export async function initiateOrderCollection(
   order: Order,
   payerPhone: string,
   actor: TransitionActor = "buyer",
+  options?: { otpCode?: string },
 ): Promise<Order> {
   if (order.status === "payment_processing") {
     const pending = await hasPendingCollection(order.id);
@@ -187,6 +184,7 @@ export async function initiateOrderCollection(
       amount: order.totalAmount,
       payerPhone,
       reference,
+      otpCode: options?.otpCode,
     });
 
     if (charge.reference !== reference) {
@@ -209,6 +207,19 @@ export async function initiateOrderCollection(
     }
   } catch (err) {
     if (err instanceof PaymentProviderRejectedError) {
+      throw err;
+    }
+
+    if (err instanceof PaymentOtpRequiredError) {
+      logger.warn(
+        { orderId: order.id, reference },
+        "Collection requires OTP verification; rolling back to awaiting_payment",
+      );
+      await applyCollectionWebhook({
+        orderId: order.id,
+        moolreReference: reference,
+        status: "failed",
+      });
       throw err;
     }
 

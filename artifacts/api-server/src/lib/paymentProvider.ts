@@ -17,6 +17,8 @@ export interface ChargeRequest {
   payerPhone: string;
   /** Platform-generated reference — stored in DB before the API call. */
   reference: string;
+  /** Moolre TP14 phone-verification OTP, when required. */
+  otpCode?: string;
 }
 
 export interface ChargeResult {

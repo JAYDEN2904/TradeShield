@@ -595,16 +595,32 @@ paths:
     post:
       operationId: payOrder
       tags: [orders]
-      summary: Buyer initiates escrow payment (mock Moolre Collections charge)
+      summary: Buyer initiates escrow payment (Moolre Collections charge)
       parameters:
         - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                otpCode:
+                  type: string
+                  description: SMS verification OTP when Moolre returns TP14
       responses:
         "200":
-          description: Order moved to payment_processing; a mock webhook will resolve to in_escrow shortly after
+          description: Order moved to payment_processing; webhook/polling resolves to in_escrow
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Order"
+        "428":
+          description: Moolre requires payer OTP verification before payment can proceed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "409":
           description: Invalid transition
           content:
@@ -1330,6 +1346,9 @@ components:
       properties:
         error:
           type: string
+        code:
+          type: string
+          description: Machine-readable error code (e.g. OTP_REQUIRED)
 
     UserRole:
       type: string

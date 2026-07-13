@@ -1885,64 +1885,87 @@ export const getPayOrderUrl = (id: number,) => {
 /**
  * @summary Buyer initiates escrow payment (mock Moolre Collections charge)
  */
-export const payOrder = async (id: number, options?: RequestInit): Promise<Order> => {
-
-  return customFetch<Order>(getPayOrderUrl(id),
-  {
+export const payOrder = async (
+  id: number,
+  payOrderInput?: { otpCode?: string },
+  options?: RequestInit,
+): Promise<Order> => {
+  return customFetch<Order>(getPayOrderUrl(id), {
     ...options,
-    method: 'POST'
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
+    body: JSON.stringify(payOrderInput ?? {}),
+  });
+};
 
+export const getPayOrderMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof payOrder>>,
+    TError,
+    { id: number; data?: { otpCode?: string } },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof payOrder>>,
+  TError,
+  { id: number; data?: { otpCode?: string } },
+  TContext
+> => {
+  const mutationKey = ["payOrder"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
 
-  }
-);}
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof payOrder>>,
+    { id: number; data?: { otpCode?: string } }
+  > = (props) => {
+    const { id, data } = props ?? {};
+    return payOrder(id, data, requestOptions);
+  };
 
+  return { mutationFn, ...mutationOptions };
+};
 
+export type PayOrderMutationResult = NonNullable<
+  Awaited<ReturnType<typeof payOrder>>
+>;
 
+export type PayOrderMutationError = ErrorType<ErrorResponse>;
 
-export const getPayOrderMutationOptions = <TError = ErrorType<ErrorResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof payOrder>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof payOrder>>, TError,{id: number}, TContext> => {
-
-const mutationKey = ['payOrder'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof payOrder>>, {id: number}> = (props) => {
-          const {id} = props ?? {};
-
-          return  payOrder(id,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type PayOrderMutationResult = NonNullable<Awaited<ReturnType<typeof payOrder>>>
-
-    export type PayOrderMutationError = ErrorType<ErrorResponse>
-
-    /**
+/**
  * @summary Buyer initiates escrow payment (mock Moolre Collections charge)
  */
-export const usePayOrder = <TError = ErrorType<ErrorResponse>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof payOrder>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof payOrder>>,
-        TError,
-        {id: number},
-        TContext
-      > => {
-      return useMutation(getPayOrderMutationOptions(options));
-    }
+export const usePayOrder = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof payOrder>>,
+    TError,
+    { id: number; data?: { otpCode?: string } },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof payOrder>>,
+  TError,
+  { id: number; data?: { otpCode?: string } },
+  TContext
+> => {
+  return useMutation(getPayOrderMutationOptions(options));
+};
 
 export const getShipOrderUrl = (id: number,) => {
 

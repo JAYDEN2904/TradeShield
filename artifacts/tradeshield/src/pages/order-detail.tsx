@@ -13,6 +13,7 @@ import {
   OrderStatus,
   type OrderDetail,
 } from "@workspace/api-client-react";
+import { ApiError } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { getErrorMessage } from "@/lib/utils";
@@ -30,6 +31,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { Package, AlertTriangle, MapPin, Calendar } from "lucide-react";
 import { useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 export default function OrderDetail() {
   const { id } = useParams();
@@ -43,6 +55,8 @@ export default function OrderDetail() {
   const [isRatingOpen, setIsRatingOpen] = useState(false);
   const [ratingStars, setRatingStars] = useState(5);
   const [ratingComment, setRatingComment] = useState("");
+  const [isOtpOpen, setIsOtpOpen] = useState(false);
+  const [paymentOtp, setPaymentOtp] = useState("");
 
   const { data: order, isLoading } = useGetOrder(orderId, {
     query: {
@@ -73,6 +87,13 @@ export default function OrderDetail() {
     });
   };
 
+  const isOtpRequiredError = (err: unknown): boolean => {
+    if (!(err instanceof ApiError)) return false;
+    if (err.status !== 428) return false;
+    const data = err.data as { code?: string } | null;
+    return data?.code === "OTP_REQUIRED";
+  };
+
   const acceptMut = useAcceptOrder({
     mutation: {
       onSuccess: () => onMutateSuccess("Order accepted — buyer can now pay."),
@@ -84,12 +105,24 @@ export default function OrderDetail() {
   });
   const payMut = usePayOrder({
     mutation: {
-      onSuccess: () =>
-        onMutateSuccess("Payment initiated — approve the prompt on your phone."),
+      onSuccess: () => {
+        setIsOtpOpen(false);
+        setPaymentOtp("");
+        onMutateSuccess("Payment initiated — approve the prompt on your phone.");
+      },
       onError: (err) => {
-        // Hard provider rejections roll the order back to awaiting_payment.
+        // Hard provider rejections / OTP roll the order back to awaiting_payment.
         queryClient.invalidateQueries({ queryKey: getGetOrderQueryKey(orderId) });
         queryClient.invalidateQueries({ queryKey: ["/orders"] });
+        if (isOtpRequiredError(err)) {
+          setIsOtpOpen(true);
+          toast({
+            title: "Verification required",
+            description:
+              "Moolre sent a code to your phone by SMS. Enter it below to continue payment.",
+          });
+          return;
+        }
         onError(err);
       },
     },
@@ -399,6 +432,50 @@ export default function OrderDetail() {
           isConfirming={confirmMut.isPending}
         />
       </div>
+
+      <Dialog open={isOtpOpen} onOpenChange={setIsOtpOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enter verification code</DialogTitle>
+            <DialogDescription>
+              Moolre sent an SMS code to your phone. Enter it to start the mobile
+              money payment prompt.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor="payment-otp">SMS code</Label>
+            <Input
+              id="payment-otp"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder="Enter code"
+              value={paymentOtp}
+              onChange={(e) => setPaymentOtp(e.target.value)}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsOtpOpen(false)}
+              disabled={payMut.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="cta"
+              disabled={!paymentOtp.trim() || payMut.isPending}
+              onClick={() =>
+                payMut.mutate({
+                  id: orderId,
+                  data: { otpCode: paymentOtp.trim() },
+                })
+              }
+            >
+              {payMut.isPending ? "Verifying…" : "Continue payment"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
