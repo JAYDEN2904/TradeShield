@@ -244,11 +244,8 @@ function SubmitForm({ onSuccess }: { onSuccess: () => void }) {
     const objectUrl = URL.createObjectURL(file);
     setPreview((p) => ({ ...p, url: objectUrl, name: file.name, uploading: true, error: null }));
 
-    const formData = new FormData();
-    formData.append("file", file);
-
     try {
-      const result = await uploadMut.mutateAsync({ data: formData });
+      const result = await uploadMut.mutateAsync({ data: { file } });
       setPreview((p) => ({ ...p, uploading: false, uploadedUrl: result.url }));
     } catch (err) {
       setPreview((p) => ({
