@@ -253,28 +253,13 @@ export async function initiateOrderCollection(
       );
     }
 
-    // OTP verified the phone but did not open a MoMo/USSD session. Mark the
-    // verify attempt failed and immediately start a fresh collection.
+    // Legacy path: provider used to signal follow-up via a new collection attempt.
+    // That reminted externalref and re-triggered TP14 SMS — do not remint.
     if (charge.needsFollowUpCollection) {
       logger.warn(
         { orderId: order.id, reference },
-        "OTP accepted without USSD; starting follow-up collection",
+        "Provider requested follow-up collection; keeping same reference (no remint)",
       );
-      await applyCollectionWebhook({
-        orderId: order.id,
-        moolreReference: reference,
-        status: "failed",
-      });
-
-      const [freshOrder] = await db
-        .select()
-        .from(ordersTable)
-        .where(eq(ordersTable.id, order.id));
-      if (!freshOrder) {
-        throw new Error(`Order ${order.id} not found before follow-up collection`);
-      }
-
-      return initiateOrderCollection(freshOrder, payerPhone, actor);
     }
   } catch (err) {
     if (err instanceof PaymentProviderRejectedError) {

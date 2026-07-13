@@ -115,24 +115,24 @@ export class MoolrePaymentProvider implements PaymentProvider {
     const status = interpretMoolreTransactionResponse(body);
     const ussdStarted = code === "TR099";
 
-    // OTP verify can succeed (e.g. TP17) without starting USSD. Only TR099 means
-    // a MoMo prompt was actually initiated — otherwise kick off a follow-up charge.
+    // TP17 = "Phone no. Verification Successful" — OTP accepted but USSD not started.
+    // Retry the SAME externalref without OTP. Minting a new reference re-triggers TP14 SMS.
     if (otpcode && !ussdStarted) {
       logger.warn(
         {
           orderId: request.orderId,
           reference: request.reference,
           code: body.code,
-          providerTransactionId,
+          message: Array.isArray(body.message)
+            ? body.message.join("; ")
+            : body.message,
         },
-        "Moolre accepted OTP but did not start USSD; follow-up collection required",
+        "Moolre accepted OTP but did not start USSD; retrying same reference without OTP",
       );
-      return {
-        reference: request.reference,
-        status: "pending",
-        providerTransactionId: undefined,
-        needsFollowUpCollection: true,
-      };
+      return this.charge({
+        ...request,
+        otpCode: undefined,
+      });
     }
 
     return {
