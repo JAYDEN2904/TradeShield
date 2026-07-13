@@ -3,11 +3,12 @@
  * and response status interpretation.
  */
 
-import { normalizeGhanaPhone } from "./phoneValidation";
+import { normalizeGhanaPhone, normalizeMomoNumber } from "./phoneValidation";
 import type { ProviderTransactionStatus } from "./paymentProvider";
 import type { MoolreCredentials } from "./moolreConfig";
 
 export type MoolreAuthMode = "private" | "public" | "vas";
+export type MoolreChannelPurpose = "payment" | "transfer";
 
 export type MoolreApiResponse = {
   status?: number | string;
@@ -17,7 +18,7 @@ export type MoolreApiResponse = {
   go?: unknown;
 };
 
-/** Strip to digits Moolre expects, e.g. 233241234567 */
+/** International digits for SMS / legacy callers, e.g. 233241234567 */
 export function toMoolreMsisdn(phone: string): string {
   const normalized = normalizeGhanaPhone(phone);
   if (normalized) {
@@ -27,15 +28,39 @@ export function toMoolreMsisdn(phone: string): string {
 }
 
 /**
- * MoMo channel codes (transfer docs): 1=MTN, 6=Telecel, 7=AT.
- * Payment docs also list 13 for MTN on some flows — override via env if needed.
+ * Local Ghana MoMo format Moolre payment/transfer APIs require:
+ * start with 0, no country code — e.g. 0241234567
  */
-export function resolveMomoChannel(phone: string): string {
+export function toMoolreLocalPhone(phone: string): string {
+  const local = normalizeMomoNumber(phone);
+  if (local) return local;
+
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("233") && digits.length === 12) {
+    return `0${digits.slice(3)}`;
+  }
+  if (digits.startsWith("0") && digits.length === 10) {
+    return digits;
+  }
+  return digits;
+}
+
+/**
+ * MoMo channel codes:
+ * - Payment (collections): 13=MTN, 6=Telecel, 7=AT
+ * - Transfer (disbursement): 1=MTN, 6=Telecel, 7=AT
+ * Override via MOOLRE_DEFAULT_MOMO_CHANNEL when set.
+ */
+export function resolveMomoChannel(
+  phone: string,
+  purpose: MoolreChannelPurpose = "transfer",
+): string {
   const envDefault = process.env.MOOLRE_DEFAULT_MOMO_CHANNEL?.trim();
   if (envDefault) return envDefault;
 
   const normalized = normalizeGhanaPhone(phone);
-  if (!normalized) return "1";
+  const mtnDefault = purpose === "payment" ? "13" : "1";
+  if (!normalized) return mtnDefault;
 
   const local = `0${normalized.slice(4)}`;
   const prefix = local.slice(0, 3);
@@ -47,7 +72,7 @@ export function resolveMomoChannel(phone: string): string {
     return "7";
   }
   // MTN (024, 054, 055, 059, 025, 053, …)
-  return "1";
+  return mtnDefault;
 }
 
 export function buildMoolreHeaders(

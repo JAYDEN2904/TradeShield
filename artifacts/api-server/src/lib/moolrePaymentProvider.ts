@@ -14,7 +14,7 @@ import {
   interpretMoolreTransactionResponse,
   moolreFetch,
   resolveMomoChannel,
-  toMoolreMsisdn,
+  toMoolreLocalPhone,
 } from "./moolreClient";
 import { logger } from "./logger";
 
@@ -26,8 +26,8 @@ export class MoolrePaymentProvider implements PaymentProvider {
   constructor(private readonly creds: MoolreCredentials) {}
 
   async charge(request: ChargeRequest): Promise<ChargeResult> {
-    const payer = toMoolreMsisdn(request.payerPhone);
-    const channel = resolveMomoChannel(request.payerPhone);
+    const payer = toMoolreLocalPhone(request.payerPhone);
+    const channel = resolveMomoChannel(request.payerPhone, "payment");
 
     const { ok, httpStatus, body, text } = await moolreFetch(
       this.creds,
@@ -71,8 +71,8 @@ export class MoolrePaymentProvider implements PaymentProvider {
   }
 
   async disburse(request: DisburseRequest): Promise<DisburseResult> {
-    const receiver = toMoolreMsisdn(request.payoutMomoNumber);
-    const channel = resolveMomoChannel(request.payoutMomoNumber);
+    const receiver = toMoolreLocalPhone(request.payoutMomoNumber);
+    const channel = resolveMomoChannel(request.payoutMomoNumber, "transfer");
 
     const { ok, httpStatus, body, text } = await moolreFetch(
       this.creds,
