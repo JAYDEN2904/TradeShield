@@ -116,6 +116,14 @@ export default function ProductDetail() {
       setLocation(`/login?returnTo=/products/${product.id}`);
       return;
     }
+    if (user.isAdmin) {
+      toast({
+        title: "Admins cannot place orders",
+        description: "Use a non-admin buyer account to place escrow orders.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (quantity < product.moq) {
       toast({
         title: "Invalid quantity",
@@ -343,13 +351,20 @@ export default function ProductDetail() {
                 disabled={
                   createOrderMut.isPending ||
                   !product.isActive ||
-                  user?.id === product.supplierId
+                  user?.id === product.supplierId ||
+                  Boolean(user?.isAdmin)
                 }
                 data-testid="btn-place-order"
               >
                 <ShieldCheck className="mr-2 h-5 w-5" />
                 {createOrderMut.isPending ? "Placing order…" : "Place escrow order"}
               </Button>
+
+              {user?.isAdmin && (
+                <p className="text-sm text-center text-muted-foreground">
+                  Admin accounts cannot place orders.
+                </p>
+              )}
 
               {user?.id === product.supplierId && (
                 <p className="text-sm text-center text-muted-foreground">

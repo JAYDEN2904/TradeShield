@@ -117,17 +117,19 @@ export default function OrderDetail() {
         setPaymentOtp("");
         onMutateSuccess("Payment initiated — approve the prompt on your phone.");
       },
-      onError: (err) => {
+      onError: (err, variables) => {
         // Hard provider rejections / OTP roll the order back to awaiting_payment.
         queryClient.invalidateQueries({ queryKey: getGetOrderQueryKey(orderId) });
         queryClient.invalidateQueries({ queryKey: ["/orders"] });
         if (isOtpRequiredError(err)) {
           setIsPayOpen(false);
           setIsOtpOpen(true);
+          const momoNumber = variables?.data?.momoNumber;
           toast({
             title: "Verification required",
-            description:
-              "Moolre sent a code to your phone by SMS. Enter the latest code to continue payment.",
+            description: momoNumber
+              ? `Moolre sent a code to ${momoNumber}. Enter the latest code to continue.`
+              : "Moolre sent a code to the MoMo number you entered. Enter the latest code to continue payment.",
           });
           return;
         }
@@ -462,7 +464,7 @@ export default function OrderDetail() {
         open={isPayOpen}
         onOpenChange={setIsPayOpen}
         amount={order.totalAmount}
-        defaultPhone={user?.phone}
+        defaultPhone={pendingPayment?.momoNumber ?? user?.phone}
         isPaying={payMut.isPending}
         onSubmit={(payload) => submitPayment(payload)}
       />
@@ -472,8 +474,9 @@ export default function OrderDetail() {
           <DialogHeader>
             <DialogTitle>Enter verification code</DialogTitle>
             <DialogDescription>
-              Use the most recent SMS code from Moolre. After it verifies, you
-              should get a mobile money prompt to enter your PIN.
+              {pendingPayment?.momoNumber
+                ? `Moolre sent an SMS code to ${pendingPayment.momoNumber}. Enter the latest code, then approve the MoMo prompt on that same phone.`
+                : "Use the most recent SMS code from Moolre. After it verifies, you should get a mobile money prompt to enter your PIN."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">

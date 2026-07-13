@@ -43,7 +43,7 @@ import {
   PaymentOtpRequiredError,
   PaymentProviderRejectedError,
 } from "../lib/paymentOrchestration";
-import { isMomoProvider } from "../lib/moolreClient";
+import { isMomoProvider, momoProviderMismatchMessage } from "../lib/moolreClient";
 import { normalizeMomoNumber } from "../lib/phoneValidation";
 import {
   fireAndForget,
@@ -151,6 +151,13 @@ router.post("/orders", requireAuth, async (req, res): Promise<void> => {
   const parsed = CreateOrderBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  if (req.currentUser!.isAdmin) {
+    res.status(403).json({
+      error: "Admin accounts cannot place orders. Use a non-admin buyer account.",
+    });
     return;
   }
 
@@ -427,7 +434,11 @@ router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
       return;
     }
   } else {
-    payerPhone = order.paymentMomoNumber;
+    // Prefer the MoMo number stored from the buyer's payment dialog — never the
+    // account registration phone — so OTP / USSD go to the wallet they entered.
+    payerPhone = order.paymentMomoNumber
+      ? normalizeMomoNumber(order.paymentMomoNumber)
+      : null;
   }
 
   if (!otpCode) {
@@ -448,6 +459,20 @@ router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
     return;
   }
 
+  const resolvedProvider =
+    momoProvider ||
+    (order.paymentMomoProvider && isMomoProvider(order.paymentMomoProvider)
+      ? order.paymentMomoProvider
+      : undefined);
+
+  if (resolvedProvider && payerPhone) {
+    const mismatch = momoProviderMismatchMessage(payerPhone, resolvedProvider);
+    if (mismatch) {
+      res.status(400).json({ error: mismatch });
+      return;
+    }
+  }
+
   try {
     const updated = await initiateOrderCollection(
       order,
@@ -455,11 +480,7 @@ router.post("/orders/:id/pay", requireAuth, async (req, res): Promise<void> => {
       "buyer",
       {
         otpCode: otpCode || undefined,
-        momoProvider:
-          momoProvider ||
-          (order.paymentMomoProvider && isMomoProvider(order.paymentMomoProvider)
-            ? order.paymentMomoProvider
-            : undefined),
+        momoProvider: resolvedProvider,
       },
     );
     res.json(updated);

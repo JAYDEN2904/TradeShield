@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { MomoProvider } from "@workspace/api-client-react";
 import { formatGhs } from "@/lib/format";
-import { inferMomoProvider, normalizeMomoNumber } from "@/lib/phone";
+import { inferMomoProvider, momoProviderMismatchMessage, normalizeMomoNumber } from "@/lib/phone";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -57,6 +57,11 @@ export function PayEscrowDialog({
     const normalized = normalizeMomoNumber(momoNumber);
     if (!normalized) {
       setError("Enter a valid Ghana mobile money number.");
+      return;
+    }
+    const mismatch = momoProviderMismatchMessage(normalized, provider);
+    if (mismatch) {
+      setError(mismatch);
       return;
     }
     setError(null);

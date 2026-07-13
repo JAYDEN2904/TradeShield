@@ -32,7 +32,26 @@ export function normalizeMomoNumber(input: string): string | null {
 
 export type MomoProviderId = "mtn" | "telecel" | "airteltigo";
 
-/** Infer network from Ghana MoMo number prefixes for form prefills. */
+export function momoProviderLabel(provider: MomoProviderId): string {
+  switch (provider) {
+    case "mtn":
+      return "MTN";
+    case "telecel":
+      return "Telecel";
+    case "airteltigo":
+      return "AirtelTigo";
+    default: {
+      const _exhaustive: never = provider;
+      return _exhaustive;
+    }
+  }
+}
+
+/**
+ * Infer network from Ghana MoMo number prefixes for form prefills / validation.
+ * Telecel: 020, 050 — AirtelTigo: 026, 027, 056, 057 — otherwise MTN
+ * (024, 025, 053, 054, 055, 059, …).
+ */
 export function inferMomoProvider(phone: string): MomoProviderId {
   const local = normalizeMomoNumber(phone);
   if (!local) return "mtn";
@@ -42,6 +61,25 @@ export function inferMomoProvider(phone: string): MomoProviderId {
     return "airteltigo";
   }
   return "mtn";
+}
+
+/** True when the selected network matches the phone number's prefix. */
+export function momoProviderMatchesPhone(
+  phone: string,
+  provider: MomoProviderId,
+): boolean {
+  if (!normalizeMomoNumber(phone)) return false;
+  return inferMomoProvider(phone) === provider;
+}
+
+/** UX error when selected network does not match the MoMo number. */
+export function momoProviderMismatchMessage(
+  phone: string,
+  provider: MomoProviderId,
+): string | null {
+  if (momoProviderMatchesPhone(phone, provider)) return null;
+  const inferred = inferMomoProvider(phone);
+  return `The number you entered looks like ${momoProviderLabel(inferred)}, but you selected ${momoProviderLabel(provider)}. Choose the matching network or correct the number.`;
 }
 
 export const ACTIVE_ROLE_STORAGE_KEY = "tradeshield_active_role";

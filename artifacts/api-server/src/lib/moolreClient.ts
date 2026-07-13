@@ -41,7 +41,26 @@ export function isMomoProvider(value: string): value is MomoProvider {
   return value === "mtn" || value === "telecel" || value === "airteltigo";
 }
 
-/** Infer network from Ghana MoMo number prefixes when the buyer does not pick one. */
+export function momoProviderLabel(provider: MomoProvider): string {
+  switch (provider) {
+    case "mtn":
+      return "MTN";
+    case "telecel":
+      return "Telecel";
+    case "airteltigo":
+      return "AirtelTigo";
+    default: {
+      const _exhaustive: never = provider;
+      return _exhaustive;
+    }
+  }
+}
+
+/**
+ * Infer network from Ghana MoMo number prefixes.
+ * Telecel: 020, 050 — AirtelTigo: 026, 027, 056, 057 — otherwise MTN
+ * (024, 025, 053, 054, 055, 059, …).
+ */
 export function inferMomoProvider(phone: string): MomoProvider {
   const normalized = normalizeGhanaPhone(phone);
   if (!normalized) return "mtn";
@@ -54,6 +73,25 @@ export function inferMomoProvider(phone: string): MomoProvider {
     return "airteltigo";
   }
   return "mtn";
+}
+
+/** True when the selected network matches the phone number's prefix. */
+export function momoProviderMatchesPhone(
+  phone: string,
+  provider: MomoProvider,
+): boolean {
+  if (!normalizeMomoNumber(phone)) return false;
+  return inferMomoProvider(phone) === provider;
+}
+
+/** Clear error when selected network does not match the MoMo number. */
+export function momoProviderMismatchMessage(
+  phone: string,
+  provider: MomoProvider,
+): string | null {
+  if (momoProviderMatchesPhone(phone, provider)) return null;
+  const inferred = inferMomoProvider(phone);
+  return `The number you entered looks like ${momoProviderLabel(inferred)}, but you selected ${momoProviderLabel(provider)}. Choose the matching network or correct the number.`;
 }
 
 /** International digits for SMS / legacy callers, e.g. 233241234567 */
@@ -84,24 +122,33 @@ export function toMoolreLocalPhone(phone: string): string {
 }
 
 /**
- * MoMo channel codes:
+ * MoMo channel codes (must match selected network):
  * - Payment (collections): 13=MTN, 6=Telecel, 7=AT
  * - Transfer (disbursement): 1=MTN, 6=Telecel, 7=AT
- * Override via MOOLRE_DEFAULT_MOMO_CHANNEL when set.
+ *
+ * Explicit provider always wins. Phone-prefix inference is next.
+ * MOOLRE_DEFAULT_MOMO_CHANNEL is only a last-resort fallback when neither
+ * is available — do not set it on Render (it used to force every charge
+ * onto a single network, e.g. Telecel channel 6).
  */
 export function resolveMomoChannel(
   phone: string,
   purpose: MoolreChannelPurpose = "transfer",
   provider?: MomoProvider,
 ): string {
-  const envDefault = process.env.MOOLRE_DEFAULT_MOMO_CHANNEL?.trim();
-  if (envDefault) return envDefault;
-
   if (provider) {
     return channelForMomoProvider(provider, purpose);
   }
 
-  return channelForMomoProvider(inferMomoProvider(phone), purpose);
+  const trimmed = phone?.trim() ?? "";
+  if (trimmed) {
+    return channelForMomoProvider(inferMomoProvider(trimmed), purpose);
+  }
+
+  const envDefault = process.env.MOOLRE_DEFAULT_MOMO_CHANNEL?.trim();
+  if (envDefault) return envDefault;
+
+  return channelForMomoProvider("mtn", purpose);
 }
 
 export function buildMoolreHeaders(

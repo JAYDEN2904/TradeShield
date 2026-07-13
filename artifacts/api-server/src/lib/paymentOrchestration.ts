@@ -24,8 +24,11 @@ import {
 } from "./paymentErrors";
 import { applyCollectionWebhook, applyDisbursementWebhook } from "./webhookHandlers";
 import { logger } from "./logger";
-import type { MomoProvider } from "./moolreClient";
-import { isMomoProvider } from "./moolreClient";
+import {
+  isMomoProvider,
+  momoProviderMismatchMessage,
+  type MomoProvider,
+} from "./moolreClient";
 import { normalizeMomoNumber } from "./phoneValidation";
 
 export {
@@ -180,6 +183,11 @@ export async function initiateOrderCollection(
     throw new PaymentProviderRejectedError(
       "Enter a valid Ghana mobile money number.",
     );
+  }
+
+  const mismatch = momoProviderMismatchMessage(normalizedPayer, momoProvider);
+  if (mismatch) {
+    throw new PaymentProviderRejectedError(mismatch);
   }
 
   let reference: string;
