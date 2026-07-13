@@ -187,7 +187,18 @@ export function extractProviderTransactionId(
 ): string | undefined {
   const data = body.data;
   if (typeof data === "string" && data.trim()) {
-    return data.trim();
+    const trimmed = data.trim();
+    // Moolre often returns placeholder strings like "all" / "address" that are
+    // not real transaction IDs (especially on TP14/TP17 verification responses).
+    if (
+      trimmed.toLowerCase() === "all" ||
+      trimmed.toLowerCase() === "address" ||
+      trimmed.toLowerCase() === "otpcode" ||
+      trimmed.toLowerCase() === "externalref"
+    ) {
+      return undefined;
+    }
+    return trimmed;
   }
   if (data && typeof data === "object" && !Array.isArray(data)) {
     const tx = data as Record<string, unknown>;

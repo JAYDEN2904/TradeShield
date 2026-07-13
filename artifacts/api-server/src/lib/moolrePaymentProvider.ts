@@ -58,11 +58,15 @@ export class MoolrePaymentProvider implements PaymentProvider {
         httpStatus,
         code: body.code,
         status: body.status,
-        dataType: Array.isArray(body.data)
-          ? "array"
-          : body.data === null
-            ? "null"
-            : typeof body.data,
+        message: Array.isArray(body.message)
+          ? body.message.join("; ")
+          : body.message,
+        dataPreview:
+          typeof body.data === "string"
+            ? body.data.slice(0, 80)
+            : body.data && typeof body.data === "object"
+              ? Object.keys(body.data as object).slice(0, 8)
+              : body.data,
       },
       "Moolre collection charge response",
     );
@@ -106,29 +110,27 @@ export class MoolrePaymentProvider implements PaymentProvider {
       throw new Error(formatMoolreRejection("collection", httpStatus, body, text));
     }
 
+    const code = (body.code ?? "").toUpperCase();
     const providerTransactionId = extractProviderTransactionId(body);
     const status = interpretMoolreTransactionResponse(body);
+    const ussdStarted = code === "TR099";
 
-    // OTP verify can succeed without starting USSD (no TR099 / no provider id).
-    // Signal orchestration to start a fresh collection now that the phone is verified.
-    if (
-      otpcode &&
-      status === "pending" &&
-      body.code !== "TR099" &&
-      !providerTransactionId
-    ) {
+    // OTP verify can succeed (e.g. TP17) without starting USSD. Only TR099 means
+    // a MoMo prompt was actually initiated — otherwise kick off a follow-up charge.
+    if (otpcode && !ussdStarted) {
       logger.warn(
         {
           orderId: request.orderId,
           reference: request.reference,
           code: body.code,
+          providerTransactionId,
         },
         "Moolre accepted OTP but did not start USSD; follow-up collection required",
       );
       return {
         reference: request.reference,
         status: "pending",
-        providerTransactionId,
+        providerTransactionId: undefined,
         needsFollowUpCollection: true,
       };
     }
