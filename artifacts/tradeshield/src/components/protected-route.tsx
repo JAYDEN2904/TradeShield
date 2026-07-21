@@ -3,13 +3,28 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/lib/auth";
 import { Skeleton } from "@/components/ui/skeleton";
 
-export function ProtectedRoute({ children, requireAdmin = false, requireRole }: { children: ReactNode, requireAdmin?: boolean, requireRole?: "buyer" | "supplier" }) {
+function loginRedirectPath(currentPath: string): string {
+  if (!currentPath || currentPath === "/" || currentPath.startsWith("/login")) {
+    return "/login";
+  }
+  return `/login?next=${encodeURIComponent(currentPath)}`;
+}
+
+export function ProtectedRoute({
+  children,
+  requireAdmin = false,
+  requireRole,
+}: {
+  children: ReactNode;
+  requireAdmin?: boolean;
+  requireRole?: "buyer" | "supplier";
+}) {
   const { user, isLoading } = useAuth();
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
 
   useEffect(() => {
     if (!isLoading && !user) {
-      setLocation("/login");
+      setLocation(loginRedirectPath(location));
     } else if (!isLoading && user && requireAdmin && !user.isAdmin) {
       setLocation("/");
     } else if (!isLoading && user && requireRole) {
@@ -20,7 +35,7 @@ export function ProtectedRoute({ children, requireAdmin = false, requireRole }: 
         setLocation("/");
       }
     }
-  }, [user, isLoading, setLocation, requireAdmin, requireRole]);
+  }, [user, isLoading, setLocation, requireAdmin, requireRole, location]);
 
   if (isLoading) {
     return (

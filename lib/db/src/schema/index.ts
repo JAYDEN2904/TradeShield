@@ -8,3 +8,4 @@ export * from "./disputes";
 export * from "./adminActions";
 export * from "./smsLogs";
 export * from "./kycDocuments";
+export * from "./notifications";

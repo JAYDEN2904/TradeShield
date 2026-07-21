@@ -58,6 +58,15 @@ export default function Login() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
+  const nextPath = (() => {
+    const params = new URLSearchParams(window.location.search);
+    const next = params.get("next");
+    if (next && next.startsWith("/") && !next.startsWith("//")) {
+      return next;
+    }
+    return "/";
+  })();
+
   const [signupStep, setSignupStep] = useState<"phone" | "otp">("phone");
   const [signupPhone, setSignupPhone] = useState("");
   const [otpCode, setOtpCode] = useState("");
@@ -74,7 +83,7 @@ export default function Login() {
     mutation: {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getGetCurrentUserQueryKey() });
-        setLocation("/");
+        setLocation(nextPath);
       },
       onError: (err) => {
         toast({

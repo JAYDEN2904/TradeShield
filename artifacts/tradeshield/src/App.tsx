@@ -19,6 +19,7 @@ import SupplierProfile from "@/pages/supplier-profile";
 import Settings from "@/pages/settings";
 import Admin from "@/pages/admin";
 import Verify from "@/pages/verify";
+import Notifications from "@/pages/notifications";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -88,6 +89,14 @@ function Router() {
         <Layout>
           <ProtectedRoute>
             <Settings />
+          </ProtectedRoute>
+        </Layout>
+      </Route>
+
+      <Route path="/notifications">
+        <Layout>
+          <ProtectedRoute>
+            <Notifications />
           </ProtectedRoute>
         </Layout>
       </Route>

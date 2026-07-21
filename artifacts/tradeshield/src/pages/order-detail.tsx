@@ -295,23 +295,25 @@ export default function OrderDetail() {
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium">{formatGhs(order.totalAmount)}</span>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">
-                    Platform fee
-                    <span className="block text-xs font-normal mt-0.5">
-                      Deducted from supplier payout at release
+                {isSupplier && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">
+                      Platform fee
+                      <span className="block text-xs font-normal mt-0.5">
+                        Deducted from your payout at release
+                      </span>
                     </span>
-                  </span>
-                  <span className="text-muted-foreground">
-                    {formatGhs(order.platformFee)}
-                  </span>
-                </div>
+                    <span className="text-muted-foreground">
+                      {formatGhs(order.platformFee)}
+                    </span>
+                  </div>
+                )}
                 <Separator className="my-3" />
                 <div className="flex justify-between font-serif text-xl font-semibold">
                   <span>{isBuyer ? "You pay" : "Order value"}</span>
                   <span>{formatGhs(order.totalAmount)}</span>
                 </div>
-                {isSupplier && order.status === OrderStatus.in_escrow && (
+                {isSupplier && (
                   <div className="flex justify-between text-sm pt-2 border-t border-dashed">
                     <span className="text-trust font-medium">Your payout (after fee)</span>
                     <span className="text-trust font-semibold">

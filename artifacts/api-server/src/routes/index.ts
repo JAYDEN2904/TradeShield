@@ -8,6 +8,7 @@ import webhooksRouter from "./webhooks";
 import adminRouter from "./admin";
 import kycRouter from "./kyc";
 import uploadsRouter from "./uploads";
+import notificationsRouter from "./notifications";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(webhooksRouter);
 router.use(adminRouter);
 router.use(kycRouter);
 router.use(uploadsRouter);
+router.use(notificationsRouter);
 
 export default router;

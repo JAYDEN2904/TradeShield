@@ -542,6 +542,31 @@ export interface UploadProductImageResponse {
   url: string;
 }
 
+export interface Notification {
+  id: number;
+  userId: number;
+  type: string;
+  title: string;
+  body: string;
+  /** @nullable */
+  orderId?: number | null;
+  /** @nullable */
+  link?: string | null;
+  /** @nullable */
+  readAt?: string | null;
+  createdAt: string;
+}
+
+export type NotificationList = Notification[];
+
+export interface UnreadNotificationCount {
+  count: number;
+}
+
+export interface MarkAllNotificationsReadResult {
+  updated: number;
+}
+
 export type GetSupplierDashboardParams = {
 earningsPeriod?: GetSupplierDashboardEarningsPeriod;
 };

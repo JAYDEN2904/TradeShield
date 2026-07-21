@@ -29,8 +29,6 @@ import { useToast } from "@/hooks/use-toast";
 import { getErrorMessage } from "@/lib/utils";
 import { formatGhs } from "@/lib/format";
 
-const PLATFORM_FEE_RATE = 0.02;
-
 export default function ProductDetail() {
   const { id } = useParams();
   const productId = parseInt(id || "0", 10);
@@ -74,7 +72,6 @@ export default function ProductDetail() {
   const subtotal = product
     ? parseFloat(product.unitPrice) * quantity
     : 0;
-  const platformFee = subtotal * PLATFORM_FEE_RATE;
 
   const createOrderMut = useCreateOrder({
     mutation: {
@@ -328,13 +325,6 @@ export default function ProductDetail() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span>{formatGhs(subtotal)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">
-                    Platform fee
-                    <span className="block text-xs">Paid by supplier at release</span>
-                  </span>
-                  <span className="text-muted-foreground">{formatGhs(platformFee)}</span>
                 </div>
                 <Separator />
                 <div className="flex justify-between font-serif text-xl font-semibold pt-1">

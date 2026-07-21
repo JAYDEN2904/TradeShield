@@ -78,6 +78,7 @@ export default defineConfig({
       "/api": {
         target: process.env.API_URL ?? "http://localhost:8080",
         changeOrigin: true,
+        ws: true,
         timeout: 120_000,
         proxyTimeout: 120_000,
       },
