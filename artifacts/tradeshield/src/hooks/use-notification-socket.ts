@@ -10,14 +10,47 @@ type WsMessage =
   | { type: "connected" }
   | { type: "notification"; notification: Notification };
 
-function notificationsWsUrl(): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/ws/notifications`;
+/** Production API host — Vercel rewrites cannot proxy WebSocket upgrades. */
+const PROD_API_WS_BASE = "wss://tradeshield-i76i.onrender.com";
+
+function notificationsWsBase(): string {
+  const fromEnv = import.meta.env.VITE_API_WS_URL as string | undefined;
+  if (fromEnv?.trim()) {
+    return fromEnv.trim().replace(/\/+$/, "");
+  }
+  if (import.meta.env.DEV) {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${protocol}//${window.location.host}`;
+  }
+  return PROD_API_WS_BASE;
+}
+
+function usesSameOriginWs(base: string): boolean {
+  try {
+    const host = new URL(base.replace(/^ws/i, "http")).host;
+    return host === window.location.host;
+  } catch {
+    return false;
+  }
+}
+
+async function fetchWsToken(): Promise<string | null> {
+  try {
+    const res = await fetch("/api/notifications/ws-token", {
+      credentials: "include",
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { token?: string };
+    return data.token ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**
  * Keeps the notification list + unread badge live via WebSocket.
  * Reconnects with exponential backoff while the user is logged in.
+ * Falls back to periodic refetch if the socket cannot stay up.
  */
 export function useNotificationSocket(enabled: boolean): void {
   const queryClient = useQueryClient();
@@ -31,6 +64,7 @@ export function useNotificationSocket(enabled: boolean): void {
     let disposed = false;
     let retryMs = 1000;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
     const invalidate = () => {
       const qc = queryClientRef.current;
@@ -40,9 +74,28 @@ export function useNotificationSocket(enabled: boolean): void {
       });
     };
 
-    const connect = () => {
+    // REST polling backup (covers Vercel/WS gaps and hibernation reconnects)
+    pollTimer = setInterval(invalidate, 20_000);
+
+    const connect = async () => {
       if (disposed) return;
-      socket = new WebSocket(notificationsWsUrl());
+
+      const base = notificationsWsBase();
+      let url = `${base}/api/ws/notifications`;
+
+      if (!usesSameOriginWs(base)) {
+        const token = await fetchWsToken();
+        if (!token) {
+          retryTimer = setTimeout(() => {
+            retryMs = Math.min(retryMs * 2, 30_000);
+            void connect();
+          }, retryMs);
+          return;
+        }
+        url += `?token=${encodeURIComponent(token)}`;
+      }
+
+      socket = new WebSocket(url);
 
       socket.onopen = () => {
         retryMs = 1000;
@@ -80,7 +133,7 @@ export function useNotificationSocket(enabled: boolean): void {
         if (disposed) return;
         retryTimer = setTimeout(() => {
           retryMs = Math.min(retryMs * 2, 30_000);
-          connect();
+          void connect();
         }, retryMs);
       };
 
@@ -89,9 +142,8 @@ export function useNotificationSocket(enabled: boolean): void {
       };
     };
 
-    connect();
+    void connect();
 
-    // Refetch when tab becomes visible again (covers missed WS messages)
     const onVisible = () => {
       if (document.visibilityState === "visible") {
         invalidate();
@@ -103,6 +155,7 @@ export function useNotificationSocket(enabled: boolean): void {
       disposed = true;
       document.removeEventListener("visibilitychange", onVisible);
       if (retryTimer) clearTimeout(retryTimer);
+      if (pollTimer) clearInterval(pollTimer);
       socket?.close();
     };
   }, [enabled]);

@@ -3,6 +3,7 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { RequestHandler } from "express";
 import type { Notification } from "@workspace/db";
+import { verifyNotificationWsToken } from "./notificationWsAuth";
 import { logger } from "./logger";
 
 type AuthedRequest = IncomingMessage & {
@@ -24,6 +25,16 @@ function trackSocket(userId: number, socket: WebSocket): void {
       socketsByUser.delete(userId);
     }
   });
+}
+
+function tokenFromUpgradeUrl(url: string | undefined): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url, "http://localhost");
+    return parsed.searchParams.get("token");
+  } catch {
+    return null;
+  }
 }
 
 export function pushNotificationToUser(
@@ -61,9 +72,23 @@ export function pushNotificationToUser(
   }
 }
 
+function acceptConnection(
+  wss: WebSocketServer,
+  req: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+  userId: number,
+): void {
+  wss.handleUpgrade(req, socket, head, (ws) => {
+    trackSocket(userId, ws);
+    ws.send(JSON.stringify({ type: "connected" }));
+    logger.debug({ userId }, "Notification WebSocket connected");
+  });
+}
+
 /**
  * Attach `/api/ws/notifications` on the HTTP server.
- * Authenticates via the same express-session cookie as REST routes.
+ * Auth: `?token=` (for cross-origin / Vercel frontends) or session cookie (local).
  */
 export function attachNotificationWebSocket(
   server: Server,
@@ -72,8 +97,20 @@ export function attachNotificationWebSocket(
   const wss = new WebSocketServer({ noServer: true });
 
   server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const url = req.url?.split("?")[0] ?? "";
-    if (url !== "/api/ws/notifications") {
+    const path = req.url?.split("?")[0] ?? "";
+    if (path !== "/api/ws/notifications") {
+      return;
+    }
+
+    const token = tokenFromUpgradeUrl(req.url);
+    if (token) {
+      const userId = verifyNotificationWsToken(token);
+      if (!userId) {
+        socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+        socket.destroy();
+        return;
+      }
+      acceptConnection(wss, req, socket, head, userId);
       return;
     }
 
@@ -91,12 +128,7 @@ export function attachNotificationWebSocket(
         socket.destroy();
         return;
       }
-
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        trackSocket(userId, ws);
-        ws.send(JSON.stringify({ type: "connected" }));
-        logger.debug({ userId }, "Notification WebSocket connected");
-      });
+      acceptConnection(wss, req, socket, head, userId);
     });
   });
 }

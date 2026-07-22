@@ -13,8 +13,19 @@ import {
   markNotificationRead,
   markAllNotificationsRead,
 } from "../lib/notifications";
+import { createNotificationWsToken } from "../lib/notificationWsAuth";
 
 const router: IRouter = Router();
+
+/** Short-lived token so the SPA can open a WebSocket directly to the API host. */
+router.get(
+  "/notifications/ws-token",
+  requireAuth,
+  async (req, res): Promise<void> => {
+    const token = createNotificationWsToken(req.currentUser!.id);
+    res.json({ token, expiresInSeconds: 600 });
+  },
+);
 
 router.get("/notifications", requireAuth, async (req, res): Promise<void> => {
   const rows = await listNotificationsForUser(req.currentUser!.id);
